@@ -14,8 +14,12 @@ installed will raise ``ImportError``.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
+
+if TYPE_CHECKING:
+    from async_hdf5 import ChunkIndex, HDF5Dataset, HDF5Group, ObspecInput
+    from async_hdf5.store import ObjectStore
 
 try:
     import numpy as np
@@ -42,7 +46,7 @@ __all__ = ["open_virtual_hdf5"]
 async def open_virtual_hdf5(
     path: str,
     *,
-    store: Any,
+    store: ObjectStore | ObspecInput,
     group: str | None = None,
     url: str | None = None,
     registry: ObjectStoreRegistry | None = None,
@@ -105,14 +109,14 @@ async def open_virtual_hdf5(
 
 async def _build_manifest_group(
     file_url: str,
-    group: Any,
+    group: HDF5Group,
     drop_variables: Iterable[str] | None,
 ) -> ManifestGroup:
     """Recursively build a ManifestGroup from an async-hdf5 HDF5Group."""
     drop = set(drop_variables or ())
 
     # First pass: collect datasets and their shapes for dimension assignment.
-    datasets: list[tuple[str, Any, Any]] = []
+    datasets: list[tuple[str, HDF5Dataset, ChunkIndex]] = []
     for name in await group.dataset_names():
         if name in drop:
             continue
@@ -179,8 +183,8 @@ def _assign_phony_dims(
 
 def _build_manifest_array(
     file_url: str,
-    dataset: Any,
-    chunk_index: Any,
+    dataset: HDF5Dataset,
+    chunk_index: ChunkIndex,
     dimension_names: tuple[str, ...] | None = None,
 ) -> ManifestArray:
     """Build a ManifestArray from an async-hdf5 dataset and its chunk index."""
@@ -256,7 +260,7 @@ def _hdf5_filters_to_zarr_codecs(
 def _ensure_store_registered(
     registry: ObjectStoreRegistry,
     file_url: str,
-    store: Any,
+    store: ObjectStore | ObspecInput,
 ) -> None:
     """Register *store* in *registry* for the scheme://netloc prefix of *file_url*."""
     parsed = urlparse(file_url)

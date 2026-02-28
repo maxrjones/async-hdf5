@@ -39,7 +39,10 @@ from async_hdf5 import HDF5Dataset, HDF5File
 if TYPE_CHECKING:
     import asyncio
 
-    from async_hdf5 import ChunkIndex
+    import xarray as xr
+
+    from async_hdf5 import ChunkIndex, ObspecInput
+    from async_hdf5.store import ObjectStore
 
 __all__ = ["LazyHDF5Store", "open_lazy_hdf5"]
 
@@ -669,12 +672,12 @@ def _transform_byte_range(
 async def open_lazy_hdf5(
     *,
     path: str,
-    store: Any,
+    store: ObjectStore | ObspecInput,
     group: str | None = None,
     drop_variables: Iterable[str] | None = None,
     block_size: int = 8 * 1024 * 1024,
     pre_warm_size: int | None = None,
-) -> Any:
+) -> xr.Dataset:
     """Open an HDF5 file as a lazy xarray Dataset.
 
     Like ``open_virtual_hdf5`` but uses ``LazyHDF5Store`` to defer chunk
