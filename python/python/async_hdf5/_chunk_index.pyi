@@ -1,4 +1,4 @@
-from typing import Iterator
+from collections.abc import Iterator
 
 class ChunkLocation:
     """A single chunk's location within the HDF5 file."""
@@ -30,7 +30,6 @@ class ChunkIndex:
 
     def __len__(self) -> int: ...
     def __iter__(self) -> Iterator[ChunkLocation]: ...
-
     @property
     def grid_shape(self) -> tuple[int, ...]:
         """The shape of the chunk grid (number of chunks per dimension)."""

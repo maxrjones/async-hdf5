@@ -1,13 +1,13 @@
 import pathlib
 
-import obstore
 from async_hdf5 import HDF5File
+from async_hdf5.store import LocalStore
 
 FIXTURES = pathlib.Path(__file__).parent.parent.parent / "tests" / "fixtures"
 
 
 async def test_open_and_root_group():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "attributes.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()
@@ -15,7 +15,7 @@ async def test_open_and_root_group():
 
 
 async def test_root_attributes():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "attributes.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()
@@ -26,7 +26,7 @@ async def test_root_attributes():
 
 
 async def test_group_navigation():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "attributes.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()
@@ -40,7 +40,7 @@ async def test_group_navigation():
 
 
 async def test_dataset_metadata():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "attributes.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()
@@ -53,7 +53,7 @@ async def test_dataset_metadata():
 
 
 async def test_dataset_attributes():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "attributes.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()
@@ -66,7 +66,7 @@ async def test_dataset_attributes():
 
 
 async def test_chunk_index():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "attributes.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()
@@ -84,7 +84,7 @@ async def test_chunk_index():
 
 
 async def test_children_and_names():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "attributes.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()
@@ -97,7 +97,7 @@ async def test_children_and_names():
 
 
 async def test_navigate():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "attributes.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()
@@ -108,7 +108,7 @@ async def test_navigate():
 
 
 async def test_vlen_string_attrs():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "attributes_vlen.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()
@@ -119,7 +119,7 @@ async def test_vlen_string_attrs():
 
 
 async def test_numpy_dtype():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "datasets.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()
@@ -142,7 +142,7 @@ async def test_numpy_dtype():
 
 
 async def test_filters():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "datasets.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()
@@ -166,7 +166,7 @@ async def test_filters():
 
 
 async def test_element_size():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "datasets.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()
@@ -179,7 +179,7 @@ async def test_element_size():
 
 
 async def test_fill_value():
-    store = obstore.store.LocalStore()
+    store = LocalStore()
     path = str(FIXTURES / "datasets.h5")
     f = await HDF5File.open(path, store=store)
     root = await f.root_group()

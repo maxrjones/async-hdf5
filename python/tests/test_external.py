@@ -7,6 +7,7 @@ conventions.
 
 import pytest
 from async_hdf5 import HDF5File
+from async_hdf5.store import LocalStore
 
 from .conftest import external_examples, h5py_comparison, resolve_folder
 
@@ -54,8 +55,6 @@ async def test_external_file(filename):
 
     if filename in not_hdf5:
         # Verify that non-HDF5 files produce a clear error message
-        from obstore.store import LocalStore
-
         store = LocalStore()
         with pytest.raises(Exception, match="Not an HDF5 file"):
             await HDF5File.open(filepath, store=store)

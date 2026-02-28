@@ -12,6 +12,7 @@ import pathlib
 import h5py
 import numpy as np
 import pytest
+from async_hdf5.store import LocalStore
 
 EXTENSIONS = (".h5", ".hdf5", ".nc", ".he5")
 
@@ -221,24 +222,20 @@ def _generate_fixtures():
 async def h5py_comparison(filepath: str, group: str | None = None):
     """Compare async-hdf5 virtual dataset against h5py direct reads.
 
-    Opens the file with both async-hdf5 (via open_lazy_hdf5) and h5py,
+    Opens the file with both async-hdf5 (via open_hdf5) and h5py,
     then compares dataset shapes, dtypes, and array values.
     """
-    from async_hdf5 import open_lazy_hdf5
-    from obspec_utils.registry import ObjectStoreRegistry
-    from obstore.store import LocalStore
+    import xarray as xr
+    from async_hdf5.zarr import open_hdf5
 
     store = LocalStore()
-    registry = ObjectStoreRegistry()
-    registry.register("file://", store)
 
-    ds = await open_lazy_hdf5(
-        filepath,
+    hdf5_store = await open_hdf5(
+        path=filepath,
         store=store,
         group=group,
-        url=f"file://{filepath}",
-        registry=registry,
     )
+    ds = xr.open_dataset(hdf5_store, engine="zarr", consolidated=False, zarr_format=3)
 
     with h5py.File(filepath, "r") as f:
         target = f[group] if group else f
@@ -290,21 +287,17 @@ async def metadata_only_check(filepath: str, group: str | None = None):
     Useful for files where data loading fails due to unsupported codecs but
     metadata parsing should still work.
     """
-    from async_hdf5 import open_lazy_hdf5
-    from obspec_utils.registry import ObjectStoreRegistry
-    from obstore.store import LocalStore
+    import xarray as xr
+    from async_hdf5.zarr import open_hdf5
 
     store = LocalStore()
-    registry = ObjectStoreRegistry()
-    registry.register("file://", store)
 
-    ds = await open_lazy_hdf5(
-        filepath,
+    hdf5_store = await open_hdf5(
+        path=filepath,
         store=store,
         group=group,
-        url=f"file://{filepath}",
-        registry=registry,
     )
+    ds = xr.open_dataset(hdf5_store, engine="zarr", consolidated=False, zarr_format=3)
 
     with h5py.File(filepath, "r") as f:
         target = f[group] if group else f

@@ -13,6 +13,12 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 
+[project.optional-dependencies]
+xarray = ["xarray>=2025.1.0", "zarr>=3.0"]
+
+[project.entry-points."xarray.backends"]
+async_hdf5 = "async_hdf5.xarray:AsyncHDF5BackendEntrypoint"
+
 [tool.maturin]
 features = ["pyo3/extension-module"]
 module-name = "async_hdf5._async_hdf5"
@@ -46,10 +52,19 @@ scripts = [
     "pooch>=1.8",
 ]
 docs = [
+    "h5py>=3.11",
+    "markdown-exec[ansi]",
     "mkdocs-material[imaging]>=9.5.49",
     "mkdocs>=1.6.1",
     "mkdocstrings[python]>=1.0",
     "mike>=2.1.3",
+    "numcodecs>=0.15",
+    "numpy>=2.0",
+    "obspec-utils",
+    "obstore>=0.5.1",
+    "virtualizarr>=2.0",
+    "xarray>=2025.1.0",
+    "zarr>=3.0",
 ]
 notebook = [
     "earthaccess",

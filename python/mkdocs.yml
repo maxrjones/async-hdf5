@@ -24,7 +24,8 @@ nav:
       - api/dataset.md
       - api/chunk-index.md
       - api/input.md
-      - api/lazy-store.md
+      - api/xarray.md
+      - api/zarr.md
       - api/virtualizarr.md
 
 watch:
@@ -77,6 +78,7 @@ extra_css:
   - overrides/stylesheets/extra.css
 
 plugins:
+  - markdown-exec
   - autorefs:
       resolve_closest: true
   - search

@@ -1,16 +1,17 @@
 """
-Lazy HDF5-to-Zarr store for async-hdf5.
+Zarr v3 store backed by async-hdf5.
 
-Provides ``LazyHDF5Store``, a read-only Zarr v3 store that wraps async-hdf5
+Provides ``HDF5Store``, a read-only Zarr v3 store that wraps async-hdf5
 objects and defers chunk index parsing until chunks are actually requested.
 Dataset metadata (shape, dtype, filters, chunk_shape) is parsed eagerly at
 open time since it's cheap, but the expensive B-tree / FixedArray traversal
 for chunk locations only happens on first access to each variable's data.
 
-This module also provides ``open_lazy_hdf5``, an async convenience function
-that creates a ``LazyHDF5Store`` and returns an xarray Dataset backed by it.
+This module also provides ``open_hdf5``, an async convenience function
+that creates and returns an ``HDF5Store``.  The store can be opened as an
+xarray Dataset via ``xr.open_dataset(store, engine="zarr", ...)``.
 
-Both ``virtualizarr`` and ``xarray`` are **optional** dependencies.
+``zarr`` is a **required** dependency; ``xarray`` is **optional**.
 """
 
 from __future__ import annotations
@@ -35,16 +36,15 @@ from zarr.core.group import GroupMetadata
 from zarr.core.metadata.v3 import ArrayV3Metadata
 
 from async_hdf5 import HDF5Dataset, HDF5File
+from async_hdf5._utils import assign_phony_dims, hdf5_filters_to_zarr_codecs
 
 if TYPE_CHECKING:
     import asyncio
 
-    import xarray as xr
-
     from async_hdf5 import ChunkIndex, ObspecInput
     from async_hdf5.store import ObjectStore
 
-__all__ = ["LazyHDF5Store", "open_lazy_hdf5"]
+__all__ = ["HDF5Store", "open_hdf5"]
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +211,7 @@ def _create_array_metadata(info: _DatasetInfo) -> ArrayV3Metadata:
     from virtualizarr.codecs import convert_to_codec_pipeline
     from zarr.dtype import parse_data_type
 
-    codecs_config = _hdf5_filters_to_zarr_codecs(info.filters, info.element_size)
+    codecs_config = hdf5_filters_to_zarr_codecs(info.filters, info.element_size)
     dt = np.dtype(info.numpy_dtype)
     zdtype = parse_data_type(dt, zarr_format=3)
 
@@ -231,78 +231,6 @@ def _create_array_metadata(info: _DatasetInfo) -> ArrayV3Metadata:
         dimension_names=info.dimension_names,
         storage_transformers=None,
     )
-
-
-# ---------------------------------------------------------------------------
-# Filter-to-codec mapping (same as virtualizarr.py)
-# ---------------------------------------------------------------------------
-
-
-def _hdf5_filters_to_zarr_codecs(
-    filters: list[dict[str, Any]],
-    element_size: int,
-) -> list[dict[str, Any]]:
-    """Map async-hdf5 filter dicts to zarr v3 codec configs."""
-    codecs: list[dict[str, Any]] = []
-    for f in filters:
-        fid = f["id"]
-        cd = f.get("client_data", [])
-        if fid == 2:  # SHUFFLE
-            codecs.append(
-                {
-                    "name": "numcodecs.shuffle",
-                    "configuration": {"elementsize": element_size},
-                }
-            )
-        elif fid == 1:  # DEFLATE
-            codecs.append(
-                {
-                    "name": "numcodecs.zlib",
-                    "configuration": {"level": cd[0] if cd else 6},
-                }
-            )
-        elif fid == 3:  # FLETCHER32
-            pass  # checksum only
-        elif fid == 32015:  # ZSTD
-            codecs.append(
-                {
-                    "name": "numcodecs.zstd",
-                    "configuration": {"level": cd[0] if cd else 3},
-                }
-            )
-    return codecs
-
-
-# ---------------------------------------------------------------------------
-# Phony dimension assignment (same as virtualizarr.py)
-# ---------------------------------------------------------------------------
-
-
-def _assign_phony_dims(
-    variables: list[tuple[str, tuple[int, ...]]],
-) -> dict[str, tuple[str, ...]]:
-    """Assign phony_dim names grouped by size, matching h5netcdf phony_dims='sort'."""
-    dim_counter = 0
-    size_to_dims: dict[int, list[str]] = {}
-    result: dict[str, tuple[str, ...]] = {}
-
-    for varname, shape in variables:
-        dims: list[str] = []
-        for size in shape:
-            candidates = size_to_dims.get(size, [])
-            chosen = None
-            for c in candidates:
-                if c not in dims:
-                    chosen = c
-                    break
-            if chosen is None:
-                chosen = f"phony_dim_{dim_counter}"
-                dim_counter += 1
-                size_to_dims.setdefault(size, []).append(chosen)
-            dims.append(chosen)
-        result[varname] = tuple(dims)
-
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -383,11 +311,11 @@ class _ChunkBatcher:
 
 
 # ---------------------------------------------------------------------------
-# LazyHDF5Store
+# HDF5Store
 # ---------------------------------------------------------------------------
 
 
-class LazyHDF5Store(Store):
+class HDF5Store(Store):
     """Read-only Zarr v3 store backed by async-hdf5 with lazy chunk index resolution.
 
     Dataset metadata (shape, dtype, codecs, etc.) is parsed eagerly at
@@ -425,7 +353,7 @@ class LazyHDF5Store(Store):
         self._group_metadata = GroupMetadata(attributes=_sanitize_attrs(group_attrs))
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, LazyHDF5Store) and self._file_url == other._file_url
+        return isinstance(other, HDF5Store) and self._file_url == other._file_url
 
     # ------------------------------------------------------------------
     # Core read
@@ -558,18 +486,18 @@ class LazyHDF5Store(Store):
         return False
 
     async def set(self, key: str, value: Buffer) -> None:
-        raise NotImplementedError("LazyHDF5Store is read-only")
+        raise NotImplementedError("HDF5Store is read-only")
 
     async def set_if_not_exists(self, key: str, value: Buffer) -> None:
-        raise NotImplementedError("LazyHDF5Store is read-only")
+        raise NotImplementedError("HDF5Store is read-only")
 
     async def delete(self, key: str) -> None:
-        raise NotImplementedError("LazyHDF5Store is read-only")
+        raise NotImplementedError("HDF5Store is read-only")
 
     async def set_partial_values(
         self, key_start_values: Iterable[tuple[str, int, BytesLike]]
     ) -> None:
-        raise NotImplementedError("LazyHDF5Store is read-only")
+        raise NotImplementedError("HDF5Store is read-only")
 
     # ------------------------------------------------------------------
     # Listing
@@ -669,7 +597,7 @@ def _transform_byte_range(
 # ---------------------------------------------------------------------------
 
 
-async def open_lazy_hdf5(
+async def open_hdf5(
     *,
     path: str,
     store: ObjectStore | ObspecInput,
@@ -677,16 +605,20 @@ async def open_lazy_hdf5(
     drop_variables: Iterable[str] | None = None,
     block_size: int = 8 * 1024 * 1024,
     pre_warm_size: int | None = None,
-) -> xr.Dataset:
-    """Open an HDF5 file as a lazy xarray Dataset.
+) -> HDF5Store:
+    """Open an HDF5 file as an :class:`HDF5Store` (read-only Zarr v3 store).
 
-    Like ``open_virtual_hdf5`` but uses ``LazyHDF5Store`` to defer chunk
-    index parsing until data is actually accessed.  This makes the initial
-    ``open_dataset`` call significantly faster for files with many variables.
+    Chunk index parsing is deferred until data is actually accessed, making
+    the initial open significantly faster for files with many variables.
+
+    The returned store can be passed directly to xarray::
+
+        store = await open_hdf5(path=key, store=s3_store)
+        ds = xr.open_dataset(store, engine="zarr", consolidated=False, zarr_format=3)
 
     Args:
         path: Path within the store (e.g. the object key for S3).
-        store: An obstore ObjectStore or obspec-compatible backend.
+        store: An async_hdf5 or obstore ObjectStore or obspec-compatible backend.
         group: HDF5 group to open. If ``None``, the root group is used.
         drop_variables: Variable names to exclude.
         block_size: BlockCache size in bytes (default 8 MiB).
@@ -699,11 +631,9 @@ async def open_lazy_hdf5(
             connection speed.
 
     Returns:
-        An xarray Dataset backed by a LazyHDF5Store. Variables are lazily
+        A read-only Zarr v3 store backed by async-hdf5. Variables are lazily
         loaded — chunk indices are only parsed when data is actually read.
     """
-    import xarray as xr
-
     # Phase 1: parse superblock + group structure
     f = await HDF5File.open(
         path, store=store, block_size=block_size, pre_warm_size=pre_warm_size
@@ -722,7 +652,7 @@ async def open_lazy_hdf5(
         datasets[name] = await target.dataset(name)
 
     # Compute phony dimension names from shapes
-    dim_names_map = _assign_phony_dims(
+    dim_names_map = assign_phony_dims(
         [(name, tuple(int(s) for s in ds.shape)) for name, ds in datasets.items()]
     )
 
@@ -745,11 +675,8 @@ async def open_lazy_hdf5(
     # Get group attributes
     group_attrs = await target.attributes()
 
-    # Create lazy store
-    lazy_store = LazyHDF5Store(
+    return HDF5Store(
         dataset_infos=dataset_infos,
         group_attrs=group_attrs,
         file_url=path,
     )
-
-    return xr.open_dataset(lazy_store, engine="zarr", consolidated=False, zarr_format=3)

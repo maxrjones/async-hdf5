@@ -12,94 +12,142 @@ Requires Python 3.11+.
 
 ## Usage
 
-```python
-import obstore
+```python exec="on" session="demo"
+import asyncio
+import tempfile
+import pathlib
+
+import h5py
+import numpy as np
+
+# Create a sample HDF5 file
+tmpdir = tempfile.mkdtemp()
+filepath = str(pathlib.Path(tmpdir) / "sample.h5")
+
+rng = np.random.default_rng(42)
+with h5py.File(filepath, "w") as f:
+    f.attrs["Conventions"] = "CF-1.8"
+    f.attrs["title"] = "Sample temperature dataset"
+
+    f.create_dataset("time", data=np.arange(12, dtype=np.float64))
+    f["time"].attrs["units"] = "months since 2020-01-01"
+
+    f.create_dataset("lat", data=np.linspace(-90, 90, 18, dtype=np.float64))
+    f["lat"].attrs["units"] = "degrees_north"
+
+    f.create_dataset("lon", data=np.linspace(-180, 180, 36, dtype=np.float64))
+    f["lon"].attrs["units"] = "degrees_east"
+
+    f.create_dataset(
+        "temperature",
+        data=rng.standard_normal((12, 18, 36), dtype=np.float32) * 10 + 280,
+        chunks=(4, 18, 36),
+        compression="gzip",
+    )
+    f["temperature"].attrs["units"] = "K"
+    f["temperature"].attrs["long_name"] = "Near-Surface Air Temperature"
+```
+
+### Opening an HDF5 file
+
+Any object implementing the [obspec](https://github.com/developmentseed/obspec) `GetRangeAsync` and `GetRangesAsync` protocols works as a store — including all [obstore](https://github.com/developmentseed/obstore) backends (S3, GCS, Azure, local, HTTP) and those compiled as part of async_hdf5.
+
+```python exec="on" source="above" result="code" session="demo"
+import asyncio
+
+from async_hdf5.store import LocalStore
 from async_hdf5 import HDF5File
 
-store = obstore.store.LocalStore()
-file = await HDF5File.open("data.h5", store=store)
-root = file.root_group()
+store = LocalStore()
 
-# Navigate
-group = await root.group("measurements")
-ds = await group.dataset("temperature")
 
-# Inspect
-print(ds.shape)         # (1000, 500)
-print(ds.numpy_dtype)   # <f4
-print(ds.chunk_shape)   # (100, 100)
-print(ds.filters)       # [{'id': 1, 'name': 'deflate', ...}]
+async def inspect():
+    file = await HDF5File.open(filepath, store=store)
+    root = await file.root_group()
 
-# Chunk byte ranges
-index = await ds.chunk_index()
-for chunk in index:
-    print(chunk.indices, chunk.byte_offset, chunk.byte_length)
+    # Group attributes
+    attrs = await root.attributes()
+    print(f"Title: {attrs['title']}")
+    print(f"Children: {await root.children()}")
+
+    # Dataset metadata
+    ds = await root.dataset("temperature")
+    print(f"\nShape: {ds.shape}")
+    print(f"Dtype: {ds.numpy_dtype}")
+    print(f"Chunk shape: {ds.chunk_shape}")
+    print(f"Filters: {ds.filters}")
+
+    # Chunk index — maps grid coordinates to byte ranges
+    chunk_index = await ds.chunk_index()
+    print(f"\nGrid shape: {chunk_index.grid_shape}")
+    print(f"Number of chunks: {len(chunk_index)}")
+    for loc in chunk_index:
+        print(
+            f"  Chunk {loc.indices}: offset={loc.byte_offset}, length={loc.byte_length}"
+        )
+
+
+asyncio.run(inspect())
 ```
 
-### Cloud storage
+### xarray backend
+
+Open any HDF5 file as an xarray Dataset using the `async_hdf5` engine:
+
+```python exec="on" source="above" result="code" session="demo"
+import xarray as xr
+
+ds = xr.open_dataset(filepath, engine="async_hdf5")
+print(ds)
+print()
+print(ds["temperature"])
+```
+
+For cloud storage, pass an ObjectStore:
 
 ```python
-import obstore
+from async_hdf5.store import S3Store
 
-store = obstore.store.S3Store(bucket="my-bucket", region="us-west-2")
-file = await HDF5File.open("path/to/file.h5", store=store)
+s3 = S3Store(bucket="noaa-goes16", region="us-east-1", skip_signature=True)
+ds = xr.open_dataset(
+    "ABI-L2-MCMIPF/2024/099/18/file.nc",
+    engine="async_hdf5",
+    store=s3,
+)
 ```
 
-Any object implementing the [obspec](https://github.com/developmentseed/obspec) `GetRangeAsync` and `GetRangesAsync` protocols works as a store.
+### Zarr store
+
+Under the hood, the xarray backend uses `open_hdf5` which returns an `HDF5Store` — a read-only Zarr v3 store backed by async-hdf5. You can also use it directly:
+
+```python exec="on" source="above" result="code" session="demo"
+from async_hdf5.zarr import open_hdf5
+
+zarr_store = asyncio.run(open_hdf5(path=filepath, store=store))
+ds = xr.open_dataset(zarr_store, engine="zarr", consolidated=False, zarr_format=3)
+print(ds)
+```
 
 ### VirtualiZarr integration
 
-With `virtualizarr` installed, you can open HDF5 files as virtual xarray datasets:
+`async_hdf5.virtualizarr` returns a `ManifestStore` containing virtual chunk references. No array data is read — only metadata and byte offsets:
 
-```python
-from async_hdf5 import open_virtual_hdf5
-import obstore
+```python exec="on" source="above" result="code" session="demo"
+from async_hdf5.virtualizarr import open_virtual_hdf5
 
-store = obstore.store.S3Store(bucket="my-bucket", region="us-west-2")
-ds = await open_virtual_hdf5(
-    "path/to/file.h5",
-    store=store,
-    url="s3://my-bucket/path/to/file.h5",
+manifest_store = asyncio.run(
+    open_virtual_hdf5(filepath, store=store, url=f"file://{filepath}")
 )
-# ds is an xarray.Dataset backed by ManifestStore — no data read yet
+vds = manifest_store.to_virtual_dataset()
+print(vds)
 ```
 
-This extracts chunk manifests and converts HDF5 filters (deflate, shuffle, zstd) to Zarr v3 codecs automatically.
+```python exec="on" session="demo"
+# Cleanup
+import shutil
 
-## API
-
-### `HDF5File`
-
-- `await HDF5File.open(path, *, store, block_size=8_388_608)` — open a file
-- `file.root_group()` — get the root group
-
-### `HDF5Group`
-
-- `group.name` — group name
-- `await group.group(name)` — child group by name
-- `await group.dataset(name)` — child dataset by name
-- `await group.navigate(path)` — navigate a `/`-separated path
-- `await group.children()` — list `(name, type)` pairs
-- `await group.group_names()` — list child group names
-- `await group.dataset_names()` — list child dataset names
-- `await group.attributes()` — `dict[str, Any]` of attributes
-
-### `HDF5Dataset`
-
-- `ds.name`, `ds.shape`, `ds.ndim`, `ds.dtype`, `ds.numpy_dtype`
-- `ds.element_size`, `ds.chunk_shape`, `ds.filters`, `ds.fill_value`
-- `await ds.chunk_index()` — get a `ChunkIndex`
-
-### `ChunkIndex`
-
-Iterable collection of `ChunkLocation` objects. Properties: `grid_shape`, `chunk_shape`, `dataset_shape`.
-
-### `ChunkLocation`
-
-- `chunk.indices` — tuple of chunk grid coordinates
-- `chunk.byte_offset` — offset in file
-- `chunk.byte_length` — size in bytes
-- `chunk.filter_mask` — bitmask of applied filters
+shutil.rmtree(tmpdir)
+```
 
 ## Development
 
