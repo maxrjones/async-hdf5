@@ -38,9 +38,9 @@ impl BTreeV2Header {
         size_of_lengths: u8,
     ) -> Result<Self> {
         // Header: 4 (sig) + 1 (ver) + 1 (type) + 4 (node_size) + 2 (rec_size) + 2 (depth)
-        //       + 1 (split) + 1 (merge) + O (root_addr) + L (num_root_rec) + L (total) + 4 (checksum)
+        //       + 1 (split) + 1 (merge) + O (root_addr) + 2 (num_root_rec) + L (total) + 4 (checksum)
         let header_size =
-            16 + size_of_offsets as u64 + 2 * size_of_lengths as u64 + 4;
+            18 + size_of_offsets as u64 + size_of_lengths as u64 + 4;
         let data = reader.get_bytes(address..address + header_size).await?;
         let mut r = HDF5Reader::with_sizes(data, size_of_offsets, size_of_lengths);
 
@@ -58,7 +58,7 @@ impl BTreeV2Header {
         let split_percent = r.read_u8()?;
         let merge_percent = r.read_u8()?;
         let root_node_address = r.read_offset()?;
-        let num_records_in_root = r.read_length()?;
+        let num_records_in_root = r.read_u16()? as u64;
         let total_records = r.read_length()?;
 
         Ok(Self {

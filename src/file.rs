@@ -116,9 +116,16 @@ pub(crate) async fn read_object_header(
     size_of_lengths: u8,
 ) -> Result<ObjectHeader> {
     // Initial fetch — 4 KB is usually enough for one object header.
-    // The ReadaheadCache will grow if needed.
     let initial_size = 4096u64;
     let data = reader.get_bytes(address..address + initial_size).await?;
+
+    // Check if the first chunk is larger than our initial fetch and re-fetch if needed.
+    let needed = peek_object_header_size(&data)?;
+    let data = if needed > initial_size {
+        reader.get_bytes(address..address + needed).await?
+    } else {
+        data
+    };
 
     let mut header = ObjectHeader::parse(&data, size_of_offsets, size_of_lengths)?;
 
@@ -132,6 +139,7 @@ pub(crate) async fn read_object_header(
             size_of_offsets,
             size_of_lengths,
             header.version,
+            header.track_creation_order,
         )?;
 
         // Check new messages for further continuations before adding them
@@ -154,12 +162,70 @@ pub(crate) async fn read_object_header(
     Ok(header)
 }
 
+/// Peek at an object header's prefix to determine the total size of the first chunk.
+///
+/// For v2 headers: reads the flags and chunk0_size to compute prefix + chunk0_size.
+/// For v1 headers: reads the header_size field to compute 16 + header_size.
+fn peek_object_header_size(data: &Bytes) -> Result<u64> {
+    if data.len() < 6 {
+        return Err(crate::error::HDF5Error::General(
+            "object header data too short".into(),
+        ));
+    }
+
+    if data.len() >= 4 && data[0..4] == [b'O', b'H', b'D', b'R'] {
+        // v2 header
+        let flags = data[5];
+        let mut offset = 6usize;
+
+        // Optional timestamps (flags bit 5)
+        if flags & 0x20 != 0 {
+            offset += 16;
+        }
+
+        // Optional attribute phase change values (flags bit 4)
+        if flags & 0x10 != 0 {
+            offset += 4;
+        }
+
+        // Chunk size field width
+        let chunk_size_width = 1usize << (flags & 0x03);
+        if data.len() < offset + chunk_size_width {
+            return Err(crate::error::HDF5Error::General(
+                "object header too short for chunk size field".into(),
+            ));
+        }
+
+        let chunk0_size = match chunk_size_width {
+            1 => data[offset] as u64,
+            2 => u16::from_le_bytes(data[offset..offset + 2].try_into().unwrap()) as u64,
+            4 => u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as u64,
+            8 => u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap()),
+            _ => unreachable!(),
+        };
+
+        // Total = header prefix + chunk0_size (which includes messages + checksum)
+        Ok((offset + chunk_size_width) as u64 + chunk0_size)
+    } else {
+        // v1 header: version(1) + reserved(1) + num_messages(2) + ref_count(4) +
+        //            header_size(4) + reserved(4) = 16 bytes prefix
+        if data.len() < 12 {
+            return Err(crate::error::HDF5Error::General(
+                "v1 object header too short".into(),
+            ));
+        }
+        let header_size = u32::from_le_bytes(data[8..12].try_into().unwrap()) as u64;
+        Ok(16 + header_size)
+    }
+}
+
 /// Parse messages from a continuation chunk (OCHK in v2, raw messages in v1).
 fn parse_continuation_chunk(
     data: &Bytes,
     size_of_offsets: u8,
     size_of_lengths: u8,
     header_version: u8,
+    track_creation_order: bool,
 ) -> Result<Vec<crate::object_header::HeaderMessage>> {
     use crate::object_header::msg_types;
 
@@ -175,6 +241,11 @@ fn parse_continuation_chunk(
             let msg_type = r.read_u8()? as u16;
             let msg_size = r.read_u16()? as usize;
             let flags = r.read_u8()?;
+
+            // Skip creation order field if tracked (same format as primary chunk)
+            if track_creation_order {
+                let _creation_order = r.read_u16()?;
+            }
 
             // NIL message (type 0) signals start of gap/padding to end of chunk.
             if msg_type == msg_types::NIL {

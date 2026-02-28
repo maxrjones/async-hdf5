@@ -75,6 +75,8 @@ pub mod msg_types {
 pub struct ObjectHeader {
     /// Object header version (1 or 2).
     pub version: u8,
+    /// Whether creation order is tracked for messages (v2 only, flags bit 2).
+    pub track_creation_order: bool,
     /// All header messages, in order.
     pub messages: Vec<HeaderMessage>,
 }
@@ -156,6 +158,7 @@ impl ObjectHeader {
 
         Ok(Self {
             version: 1,
+            track_creation_order: false,
             messages,
         })
     }
@@ -247,6 +250,7 @@ impl ObjectHeader {
 
         Ok(Self {
             version: 2,
+            track_creation_order,
             messages,
         })
     }

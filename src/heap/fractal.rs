@@ -182,8 +182,9 @@ impl FractalHeap {
     async fn read_from_offset(&self, offset: u64, length: u64) -> Result<Bytes> {
         if self.current_root_rows == 0 {
             // Root block is a direct block — the offset is directly within it.
-            let block_header_size = self.direct_block_header_size();
-            let file_offset = self.root_block_address + block_header_size as u64 + offset;
+            // The heap's address space includes the block header, so the offset
+            // from the heap ID already accounts for the header bytes.
+            let file_offset = self.root_block_address + offset;
             return self
                 .reader
                 .get_bytes(file_offset..file_offset + length)
@@ -261,9 +262,10 @@ impl FractalHeap {
                     if HDF5Reader::is_undef_addr(block_addr, self.size_of_offsets) {
                         return Err(HDF5Error::UndefinedAddress);
                     }
+                    // The heap's address space includes block headers, so the
+                    // local offset already accounts for them.
                     let local_offset = offset - cumulative_offset;
-                    let block_header_size = self.direct_block_header_size();
-                    let file_offset = block_addr + block_header_size as u64 + local_offset;
+                    let file_offset = block_addr + local_offset;
                     return self
                         .reader
                         .get_bytes(file_offset..file_offset + length)
@@ -302,16 +304,6 @@ impl FractalHeap {
         Err(HDF5Error::General(format!(
             "fractal heap offset {offset} out of range (max {cumulative_offset})"
         )))
-    }
-
-    /// Size of a direct block header in bytes.
-    fn direct_block_header_size(&self) -> usize {
-        let block_offset_size = ((self.max_heap_size as usize) + 7) / 8;
-        let mut size = 4 + 1 + self.size_of_offsets as usize + block_offset_size;
-        if self.checksum_direct_blocks {
-            size += 4;
-        }
-        size
     }
 
     /// Maximum number of rows in any indirect block that contain direct block children.

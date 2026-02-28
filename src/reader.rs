@@ -307,8 +307,17 @@ impl<F: AsyncFileReader + Send + Sync> AsyncFileReader for ReadaheadCache<F> {
         let fetch_size = self.next_fetch_size(start_len).max(needed);
         let fetch_range = start_len..start_len + fetch_size;
 
-        let bytes = self.inner.get_bytes(fetch_range).await?;
-        cache.append(bytes);
+        // Try to extend the cache. The fetch may fail if we're at or past EOF
+        // (e.g., object_store rejects start >= file_length). Handle gracefully
+        // by serving whatever we already have.
+        match self.inner.get_bytes(fetch_range).await {
+            Ok(bytes) => cache.append(bytes),
+            Err(_) if range.start < cache.len => {
+                // Extension failed (likely EOF), but we can serve a partial response
+                return Ok(cache.slice(range.start..cache.len.min(range.end)));
+            }
+            Err(e) => return Err(e),
+        }
 
         // If we hit EOF, the cache may not fully cover the requested range.
         // Return whatever is available (the object header parser handles
