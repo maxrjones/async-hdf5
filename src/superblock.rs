@@ -47,7 +47,10 @@ impl Superblock {
                 return Ok((sb, offset));
             }
         }
-        Err(HDF5Error::InvalidSignature(0))
+
+        // No HDF5 signature found — try to identify the actual format.
+        let hint = identify_format(data);
+        Err(HDF5Error::InvalidSignature { offset: 0, hint })
     }
 
     fn parse_at(data: &Bytes, offset: u64) -> Result<Self> {
@@ -173,6 +176,59 @@ impl Superblock {
             extension_address,
         })
     }
+}
+
+/// Inspect the first bytes of data and return a human-readable description
+/// of the file format when it is not HDF5.
+fn identify_format(data: &Bytes) -> String {
+    if data.len() < 4 {
+        return format!(
+            "file is too small ({} bytes) to contain an HDF5 superblock",
+            data.len()
+        );
+    }
+
+    let head = &data[..std::cmp::min(data.len(), 8)];
+
+    // NetCDF classic / 64-bit offset / CDF-5
+    if head.starts_with(b"CDF") && data.len() >= 4 {
+        let version_byte = data[3];
+        let variant = match version_byte {
+            1 => "NetCDF3 classic (CDF-1)",
+            2 => "NetCDF3 64-bit offset (CDF-2)",
+            5 => "NetCDF3 64-bit data (CDF-5)",
+            _ => "NetCDF3 (unknown variant)",
+        };
+        return format!(
+            "file appears to be {} format, not HDF5. \
+             NetCDF4 (which uses HDF5) starts with \\x89HDF, \
+             but this file starts with CDF\\x{:02x}",
+            variant, version_byte
+        );
+    }
+
+    // HDF4
+    if head.len() >= 4 && head[0] == 0x0e && head[1] == 0x03 && head[2] == 0x13 && head[3] == 0x01
+    {
+        return "file appears to be HDF4 format, not HDF5. \
+                async-hdf5 only supports HDF5 (and NetCDF4, which is HDF5-based)"
+            .to_string();
+    }
+
+    // TIFF (little-endian or big-endian)
+    if head.len() >= 4
+        && ((head[0] == b'I' && head[1] == b'I' && head[2] == 42 && head[3] == 0)
+            || (head[0] == b'M' && head[1] == b'M' && head[2] == 0 && head[3] == 42))
+    {
+        return "file appears to be TIFF format, not HDF5".to_string();
+    }
+
+    // Generic: show first 8 bytes as hex
+    let hex: Vec<String> = head.iter().map(|b| format!("{:02x}", b)).collect();
+    format!(
+        "expected HDF5 signature (\\x89HDF\\r\\n\\x1a\\n) but found [{}]",
+        hex.join(" ")
+    )
 }
 
 #[cfg(test)]

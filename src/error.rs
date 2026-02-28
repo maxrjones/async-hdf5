@@ -6,8 +6,13 @@ pub type Result<T> = std::result::Result<T, HDF5Error>;
 /// Errors that can occur when reading HDF5 files.
 #[derive(Debug, Error)]
 pub enum HDF5Error {
-    #[error("Invalid HDF5 signature at offset {0}")]
-    InvalidSignature(u64),
+    #[error("Not an HDF5 file: {hint}")]
+    InvalidSignature {
+        /// Byte offset that was checked.
+        offset: u64,
+        /// Human-readable hint about what was found instead.
+        hint: String,
+    },
 
     #[error("Unsupported superblock version: {0}")]
     UnsupportedSuperblockVersion(u8),
