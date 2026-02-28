@@ -250,6 +250,10 @@ async def h5py_comparison(filepath: str, group: str | None = None):
             if h5py.check_vlen_dtype(h5_ds.dtype):
                 continue
 
+            # Skip very large datasets (>100M elements) to avoid OOM
+            if h5_ds.size > 100_000_000:
+                continue
+
             # Shape comparison
             assert ds[varname].shape == h5_ds.shape, (
                 f"{varname}: shape {ds[varname].shape} != {h5_ds.shape}"

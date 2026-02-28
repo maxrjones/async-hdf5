@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from collections.abc import AsyncGenerator, AsyncIterator, Iterable
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
@@ -63,6 +64,89 @@ def _parse_chunk_key(suffix: str, separator: str = ".") -> tuple[int, ...]:
 
 
 # ---------------------------------------------------------------------------
+# Fill value decoding
+# ---------------------------------------------------------------------------
+
+
+def _decode_fill_value(
+    raw: list[int] | None, numpy_dtype: str
+) -> int | float | None:
+    """Convert raw fill value bytes from the HDF5 parser to a numpy scalar.
+
+    Parameters
+    ----------
+    raw
+        Raw fill value as a list of byte values (from Rust ``Vec<u8>`` via PyO3),
+        or *None* if no fill value is defined.
+    numpy_dtype
+        Numpy dtype string for the dataset (e.g. ``"<f4"``).
+
+    Returns
+    -------
+    int | float | None
+        A Python scalar suitable for Zarr's ``ArrayV3Metadata(fill_value=...)``.
+
+    Raises
+    ------
+    ValueError
+        If *raw* cannot be interpreted as *numpy_dtype* (e.g. byte count mismatch).
+    """
+    if raw is None:
+        return None
+    raw_bytes = bytes(raw)
+    dt = np.dtype(numpy_dtype)
+    if len(raw_bytes) != dt.itemsize:
+        raise ValueError(
+            f"Fill value has {len(raw_bytes)} byte(s) but dtype {numpy_dtype!r} "
+            f"expects {dt.itemsize}. Raw bytes: {raw_bytes!r}"
+        )
+    return np.frombuffer(raw_bytes, dtype=dt).flat[0].item()
+
+
+# ---------------------------------------------------------------------------
+# Attribute sanitization
+# ---------------------------------------------------------------------------
+
+
+def _sanitize_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
+    """Convert HDF5 attributes to JSON-serializable Python types.
+
+    Zarr's ``GroupMetadata`` serializes attributes to JSON.  HDF5 attributes
+    can include ``bytes`` (from ``AttributeValue::Raw``), numpy arrays, and
+    numpy scalars that aren't directly JSON-compatible.
+
+    Binary attributes that can't be decoded as UTF-8 are dropped, and a
+    :func:`warnings.warn` lists every dropped key so the user can investigate.
+    """
+    clean: dict[str, Any] = {}
+    non_serializable: list[tuple[str, str, str]] = []
+
+    for k, v in attrs.items():
+        if isinstance(v, bytes):
+            try:
+                clean[k] = v.decode("utf-8")
+            except UnicodeDecodeError:
+                non_serializable.append((k, type(v).__name__, repr(v[:32])))
+                continue
+        elif isinstance(v, np.ndarray):
+            clean[k] = v.tolist()
+        elif isinstance(v, (np.integer, np.floating)):
+            clean[k] = v.item()
+        else:
+            clean[k] = v
+
+    if non_serializable:
+        details = "; ".join(f"{k} ({t}): {r}" for k, t, r in non_serializable)
+        warnings.warn(
+            f"Dropped {len(non_serializable)} non-serializable attribute(s): "
+            f"{details}. These contain raw bytes that cannot be represented "
+            f"in Zarr metadata.",
+            stacklevel=2,
+        )
+    return clean
+
+
+# ---------------------------------------------------------------------------
 # Dataset info: lightweight metadata cache (no chunk index)
 # ---------------------------------------------------------------------------
 
@@ -96,8 +180,8 @@ class _DatasetInfo:
         self.chunk_shape: tuple[int, ...] = tuple(
             int(s) for s in (ds.chunk_shape or ds.shape)
         )
-        self.fill_value: bytes | None = (
-            bytes(ds.fill_value) if ds.fill_value is not None else None
+        self.fill_value: int | float | None = _decode_fill_value(
+            ds.fill_value, ds.numpy_dtype
         )
         self.filters: list[dict[str, Any]] = ds.filters
         self.dimension_names = dimension_names
@@ -271,7 +355,7 @@ class LazyHDF5Store(Store):
         self._file_url = file_url
         self._registry = registry
         self._chunk_indices = {}
-        self._group_metadata = GroupMetadata(attributes=group_attrs)
+        self._group_metadata = GroupMetadata(attributes=_sanitize_attrs(group_attrs))
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, LazyHDF5Store) and self._file_url == other._file_url

@@ -6,20 +6,20 @@ dimension scales, and edge cases. Many of these are intentionally corrupted or
 use exotic features (family drivers, virtual datasets, onion VFD, etc.) that
 are not relevant for cloud-native HDF5 reading.
 
-Result summary (HDF5 2.0.0): 162 passed, 269 xfailed.
+Result summary (HDF5 2.0.0): 199 passed, 232 xfailed.
 
 Top failure categories:
-  - 45 I/O error (truncated/split files, family driver members)
+  - 44 I/O error (truncated/split files, family driver members)
   - 36 Not an HDF5 file (multi/onion VFD fragments)
   - 16 ExtensibleArray chunk indexing not yet supported
-  - 12 Object header data too short
-  - 10 Bytes not JSON serializable (raw byte attributes)
+  - 12 object header data too short
   -  8 Unknown reference type
   -  8 Virtual dataset layout (class 3)
-  -  8 Zero-length dimension
+  -  7 dtype V != S/O/c (string/reference/complex mapped to void)
+  -  7 Unsupported datatype class (2, 11, 15)
   -  6 Unsupported object header version 0
-  -  6 Unsupported datatype class 2 (compound)
   -  6 External raw data files
+  -  6 length must be >= 1 (zero-size void dtype)
 """
 
 import pytest
@@ -66,7 +66,6 @@ xfail_files: set[str] = {
     "test/testfiles/test_filters_be.h5",
     "test/testfiles/test_filters_le.h5",
     "test/testfiles/th5s.h5",
-    "test/testfiles/tlayouto.h5",
     "test/testfiles/tmisc38a.h5",
     "test/testfiles/tmisc38b.h5",
     "test/testfiles/tmtimeo.h5",
@@ -107,9 +106,6 @@ xfail_files: set[str] = {
     "tools/test/testfiles/h5copy_ref.h5",
     "tools/test/testfiles/h5copytst.h5",
     "tools/test/testfiles/h5copytst_new.h5",
-    "tools/test/testfiles/h5diff_attr1.h5",
-    "tools/test/testfiles/h5diff_attr2.h5",
-    "tools/test/testfiles/h5diff_attr3.h5",
     "tools/test/testfiles/h5diff_dset1.h5",
     "tools/test/testfiles/h5diff_dset2.h5",
     "tools/test/testfiles/h5diff_dset3.h5",
@@ -117,13 +113,8 @@ xfail_files: set[str] = {
     "tools/test/testfiles/h5diff_ext2softlink_trg.h5",
     "tools/test/testfiles/h5diff_grp_recurse_ext1.h5",
     "tools/test/testfiles/h5diff_grp_recurse_ext2-1.h5",
-    "tools/test/testfiles/h5diff_hyper1.h5",
-    "tools/test/testfiles/h5diff_hyper2.h5",
     "tools/test/testfiles/h5diff_linked_softlink.h5",
     "tools/test/testfiles/h5diff_links.h5",
-    "tools/test/testfiles/h5diff_onion_dset_1d.h5",
-    "tools/test/testfiles/h5diff_onion_dset_ext.h5",
-    "tools/test/testfiles/h5diff_onion_objs.h5",
     "tools/test/testfiles/h5diff_softlinks.h5",
     "tools/test/testfiles/h5diff_strings1.h5",
     "tools/test/testfiles/h5diff_strings2.h5",
@@ -141,11 +132,9 @@ xfail_files: set[str] = {
     "tools/test/testfiles/h5fc_non_v3.h5",
     "tools/test/testfiles/h5repack_CVE-2018-14460.h5",
     "tools/test/testfiles/h5repack_CVE-2018-17432.h5",
-    "tools/test/testfiles/h5repack_attr.h5",
     "tools/test/testfiles/h5repack_deflate.h5",
     "tools/test/testfiles/h5repack_ext.h5",
     "tools/test/testfiles/h5repack_f32le_ex.h5",
-    "tools/test/testfiles/h5repack_fill.h5",
     "tools/test/testfiles/h5repack_filters.h5",
     "tools/test/testfiles/h5repack_fletcher.h5",
     "tools/test/testfiles/h5repack_int32le_1d_ex.h5",
@@ -153,7 +142,6 @@ xfail_files: set[str] = {
     "tools/test/testfiles/h5repack_int32le_3d_ex.h5",
     "tools/test/testfiles/h5repack_layout.UD.h5",
     "tools/test/testfiles/h5repack_layout.h5",
-    "tools/test/testfiles/h5repack_layouto.h5",
     "tools/test/testfiles/h5repack_named_dtypes.h5",
     "tools/test/testfiles/h5repack_nbit.h5",
     "tools/test/testfiles/h5repack_objs.h5",
@@ -181,14 +169,10 @@ xfail_files: set[str] = {
     "tools/test/testfiles/tarray6.h5",
     "tools/test/testfiles/tarray7.h5",
     "tools/test/testfiles/tarray8.h5",
-    "tools/test/testfiles/tattr2.h5",
-    "tools/test/testfiles/tattrintsize.h5",
     "tools/test/testfiles/tattrreg.h5",
     "tools/test/testfiles/tbfloat16.h5",
     "tools/test/testfiles/tbfloat16_be.h5",
-    "tools/test/testfiles/tbigdims.h5",
     "tools/test/testfiles/tchar.h5",
-    "tools/test/testfiles/tcmpdattrintsize.h5",
     "tools/test/testfiles/tcmpdintarray.h5",
     "tools/test/testfiles/tcmpdints.h5",
     "tools/test/testfiles/tcmpdintsize.h5",
@@ -241,7 +225,6 @@ xfail_files: set[str] = {
     "tools/test/testfiles/trefer_reg.h5",
     "tools/test/testfiles/trefer_reg_1d.h5",
     "tools/test/testfiles/tsaf.h5",
-    "tools/test/testfiles/tscalarattrintsize.h5",
     "tools/test/testfiles/tscalarintattrsize.h5",
     "tools/test/testfiles/tscalarintsize.h5",
     "tools/test/testfiles/tscalarstring.h5",
@@ -249,9 +232,6 @@ xfail_files: set[str] = {
     "tools/test/testfiles/tsoftlinks.h5",
     "tools/test/testfiles/tsplit_file-m.h5",
     "tools/test/testfiles/tsplit_file-r.h5",
-    "tools/test/testfiles/tst_onion_dset_1d.h5",
-    "tools/test/testfiles/tst_onion_dset_ext.h5",
-    "tools/test/testfiles/tst_onion_objs.h5",
     "tools/test/testfiles/tstr.h5",
     "tools/test/testfiles/tstr3.h5",
     "tools/test/testfiles/tudfilter.h5",
@@ -266,28 +246,11 @@ xfail_files: set[str] = {
     "tools/test/testfiles/tvms.h5",
     "tools/test/testfiles/twithub.h5",
     "tools/test/testfiles/twithub513.h5",
-    "tools/test/testfiles/vds/1_a.h5",
-    "tools/test/testfiles/vds/1_b.h5",
-    "tools/test/testfiles/vds/1_c.h5",
-    "tools/test/testfiles/vds/1_d.h5",
-    "tools/test/testfiles/vds/1_e.h5",
-    "tools/test/testfiles/vds/1_f.h5",
     "tools/test/testfiles/vds/1_vds.h5",
-    "tools/test/testfiles/vds/2_a.h5",
-    "tools/test/testfiles/vds/2_b.h5",
-    "tools/test/testfiles/vds/2_c.h5",
-    "tools/test/testfiles/vds/2_d.h5",
-    "tools/test/testfiles/vds/2_e.h5",
     "tools/test/testfiles/vds/2_vds.h5",
     "tools/test/testfiles/vds/3_1_vds.h5",
     "tools/test/testfiles/vds/3_2_vds.h5",
-    "tools/test/testfiles/vds/4_0.h5",
-    "tools/test/testfiles/vds/4_1.h5",
-    "tools/test/testfiles/vds/4_2.h5",
     "tools/test/testfiles/vds/4_vds.h5",
-    "tools/test/testfiles/vds/5_a.h5",
-    "tools/test/testfiles/vds/5_b.h5",
-    "tools/test/testfiles/vds/5_c.h5",
     "tools/test/testfiles/vds/5_vds.h5",
     "tools/test/testfiles/vds/vds-eiger.h5",
     "tools/test/testfiles/vds/vds-percival-unlim-maxmin.h5",
