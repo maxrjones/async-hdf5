@@ -6,7 +6,6 @@ conventions.
 """
 
 import pytest
-
 from async_hdf5 import HDF5File
 
 from .conftest import external_examples, h5py_comparison, resolve_folder

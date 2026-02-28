@@ -47,9 +47,7 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument(
-        "--force", action="store_true", help="Re-download all files"
-    )
+    parser.add_argument("--force", action="store_true", help="Re-download all files")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -66,9 +64,10 @@ def main():
     print(f"Found {len(sources)} entries in {SOURCES_FILE.name}")
 
     if args.dry_run:
-        for filename, entry in sources.items():
+        for filename, _entry in sources.items():
             local_path = EXTERNAL_DIR / filename
-            status = "cached" if local_path.exists() and not args.force else "to download"
+            is_cached = local_path.exists() and not args.force
+            status = "cached" if is_cached else "to download"
             print(f"  [{status}] {filename}")
         return
 

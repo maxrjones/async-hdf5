@@ -99,7 +99,9 @@ async def open_virtual_hdf5(
     _ensure_store_registered(registry, file_url, store)
 
     manifest_store = ManifestStore(group=manifest_group, registry=registry)
-    return xr.open_dataset(manifest_store, engine="zarr", consolidated=False, zarr_format=3)
+    return xr.open_dataset(
+        manifest_store, engine="zarr", consolidated=False, zarr_format=3
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -125,11 +127,15 @@ async def _build_manifest_group(
         datasets.append((name, ds, chunk_idx))
 
     # Assign phony dimension names grouped by size (like h5netcdf phony_dims="sort").
-    dim_names_map = _assign_phony_dims([(name, tuple(int(s) for s in ds.shape)) for name, ds, _ in datasets])
+    dim_names_map = _assign_phony_dims(
+        [(name, tuple(int(s) for s in ds.shape)) for name, ds, _ in datasets]
+    )
 
     arrays: dict[str, ManifestArray] = {}
     for name, ds, chunk_idx in datasets:
-        arrays[name] = _build_manifest_array(file_url, ds, chunk_idx, dimension_names=dim_names_map[name])
+        arrays[name] = _build_manifest_array(
+            file_url, ds, chunk_idx, dimension_names=dim_names_map[name]
+        )
 
     groups: dict[str, ManifestGroup] = {}
     for name in await group.group_names():
@@ -195,9 +201,7 @@ def _build_manifest_array(
         offsets[idx] = chunk.byte_offset
         lengths[idx] = chunk.byte_length
 
-    manifest = ChunkManifest.from_arrays(
-        paths=paths, offsets=offsets, lengths=lengths
-    )
+    manifest = ChunkManifest.from_arrays(paths=paths, offsets=offsets, lengths=lengths)
 
     codecs = _hdf5_filters_to_zarr_codecs(dataset.filters, dataset.element_size)
 

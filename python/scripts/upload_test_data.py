@@ -21,7 +21,7 @@ Usage:
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import obstore as obs
@@ -86,7 +86,7 @@ def build_readme(all_files):
     external_files = sorted(f for f in all_files if f.startswith("external/"))
     netcdf_files = sorted(f for f in all_files if f.startswith("netcdf-test-data/"))
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now = datetime.now(UTC).strftime("%Y-%m-%d")
 
     lines = [
         "# HDF5/NetCDF4 test data",

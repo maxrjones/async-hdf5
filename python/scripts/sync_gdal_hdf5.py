@@ -106,9 +106,7 @@ def find_local_files() -> set[str]:
         return set()
     files = set()
     for ext in EXTENSIONS:
-        files.update(
-            str(f.relative_to(GDAL_DIR)) for f in GDAL_DIR.rglob(f"*{ext}")
-        )
+        files.update(str(f.relative_to(GDAL_DIR)) for f in GDAL_DIR.rglob(f"*{ext}"))
     return files
 
 

@@ -3,7 +3,6 @@ import pathlib
 import obstore
 from async_hdf5 import HDF5File
 
-
 FIXTURES = pathlib.Path(__file__).parent.parent.parent / "tests" / "fixtures"
 
 

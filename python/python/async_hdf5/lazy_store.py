@@ -15,10 +15,9 @@ Both ``virtualizarr`` and ``xarray`` are **optional** dependencies.
 
 from __future__ import annotations
 
-import json
 import re
 import warnings
-from collections.abc import AsyncGenerator, AsyncIterator, Iterable
+from collections.abc import AsyncGenerator, Iterable
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
@@ -30,19 +29,20 @@ from zarr.abc.store import (
     Store,
     SuffixByteRequest,
 )
-from zarr.core.buffer import Buffer, BufferPrototype, default_buffer_prototype
+from zarr.core.buffer import Buffer, BufferPrototype
 from zarr.core.buffer.core import default_buffer_prototype as _default_prototype
 from zarr.core.common import BytesLike
 from zarr.core.group import GroupMetadata
 from zarr.core.metadata.v3 import ArrayV3Metadata
 
-from async_hdf5 import HDF5Dataset, HDF5File, HDF5Group
+from async_hdf5 import HDF5Dataset, HDF5File
 
 if TYPE_CHECKING:
     import asyncio
 
-    from async_hdf5 import ChunkIndex
     from obspec_utils.registry import ObjectStoreRegistry
+
+    from async_hdf5 import ChunkIndex
 
 __all__ = ["LazyHDF5Store", "open_lazy_hdf5"]
 
@@ -70,9 +70,7 @@ def _parse_chunk_key(suffix: str, separator: str = ".") -> tuple[int, ...]:
 # ---------------------------------------------------------------------------
 
 
-def _decode_fill_value(
-    raw: list[int] | None, numpy_dtype: str
-) -> int | float | None:
+def _decode_fill_value(raw: list[int] | None, numpy_dtype: str) -> int | float | None:
     """Convert raw fill value bytes from the HDF5 parser to a numpy scalar.
 
     Parameters
@@ -209,7 +207,7 @@ class _DatasetInfo:
     @property
     def grid_shape(self) -> tuple[int, ...]:
         return tuple(
-            -(-s // c) for s, c in zip(self.shape, self.chunk_shape)
+            -(-s // c) for s, c in zip(self.shape, self.chunk_shape, strict=True)
         )
 
 
@@ -230,7 +228,9 @@ def _create_array_metadata(info: _DatasetInfo) -> ArrayV3Metadata:
             "configuration": {"chunk_shape": info.chunk_shape},
         },
         chunk_key_encoding={"name": "default"},
-        fill_value=zdtype.default_scalar() if info.fill_value is None else info.fill_value,
+        fill_value=(
+            zdtype.default_scalar() if info.fill_value is None else info.fill_value
+        ),
         codecs=convert_to_codec_pipeline(codecs=codecs_config, dtype=dt),
         attributes={},
         dimension_names=info.dimension_names,
@@ -378,7 +378,7 @@ class _ChunkBatcher:
             else:
                 fetched = []
 
-            for fut, mapping in zip(futures, range_map):
+            for fut, mapping in zip(futures, range_map, strict=True):
                 if not fut.done():
                     fut.set_result(fetched[mapping] if mapping is not None else None)
         except Exception as exc:
@@ -530,7 +530,10 @@ class LazyHDF5Store(Store):
 
         return list(
             await asyncio.gather(
-                *(self.get(key, prototype, byte_range) for key, byte_range in key_ranges)
+                *(
+                    self.get(key, prototype, byte_range)
+                    for key, byte_range in key_ranges
+                )
             )
         )
 
@@ -634,7 +637,9 @@ class LazyHDF5Store(Store):
         return False
 
 
-def _iter_chunk_keys(grid_shape: tuple[int, ...], separator: str = "/") -> Iterable[str]:
+def _iter_chunk_keys(
+    grid_shape: tuple[int, ...], separator: str = "/"
+) -> Iterable[str]:
     """Yield chunk keys like '0/0', '0/1', ... for a given grid shape."""
     if len(grid_shape) == 0:
         return
@@ -784,9 +789,7 @@ async def open_lazy_hdf5(
         registry=registry,
     )
 
-    return xr.open_dataset(
-        lazy_store, engine="zarr", consolidated=False, zarr_format=3
-    )
+    return xr.open_dataset(lazy_store, engine="zarr", consolidated=False, zarr_format=3)
 
 
 def _ensure_store_registered(

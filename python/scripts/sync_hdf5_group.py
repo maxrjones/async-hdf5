@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Sync HDF5 test files from the latest HDF5 library release into tests/data/hdf5-group/.
+"""Sync HDF5 test files from the latest HDF5 library release.
+
+Syncs into tests/data/hdf5-group/.
 
 Downloads a tarball of the latest HDF5 release from the HDFGroup GitHub repo
 using pooch for caching, then extracts .h5 files from test/ directories into
@@ -90,8 +92,7 @@ def find_local_files() -> set[str]:
     files = set()
     for ext in EXTENSIONS:
         files.update(
-            str(f.relative_to(HDF5_GROUP_DIR))
-            for f in HDF5_GROUP_DIR.rglob(f"*{ext}")
+            str(f.relative_to(HDF5_GROUP_DIR)) for f in HDF5_GROUP_DIR.rglob(f"*{ext}")
         )
     return files
 

@@ -138,14 +138,14 @@ def _generate_fixtures():
 
     # 4. Multiple datasets with different dtypes
     with h5py.File(_GENERATED_DIR / "multi_dtype.h5", "w") as f:
-        f.create_dataset("int16_data", data=np.arange(100, dtype=np.int16).reshape(10, 10))
-        f.create_dataset("int32_data", data=np.arange(100, dtype=np.int32).reshape(10, 10))
         f.create_dataset(
-            "float32_data", data=rng.random((10, 10), dtype=np.float32)
+            "int16_data", data=np.arange(100, dtype=np.int16).reshape(10, 10)
         )
         f.create_dataset(
-            "float64_data", data=rng.random((10, 10), dtype=np.float64)
+            "int32_data", data=np.arange(100, dtype=np.int32).reshape(10, 10)
         )
+        f.create_dataset("float32_data", data=rng.random((10, 10), dtype=np.float32))
+        f.create_dataset("float64_data", data=rng.random((10, 10), dtype=np.float64))
 
     # 5. Nested groups with datasets at different levels
     with h5py.File(_GENERATED_DIR / "nested_groups.h5", "w") as f:
@@ -200,8 +200,13 @@ def _generate_fixtures():
 
     # 9. Unsigned integer types
     with h5py.File(_GENERATED_DIR / "unsigned_int.h5", "w") as f:
-        f.create_dataset("uint8_data", data=np.arange(256, dtype=np.uint8).reshape(16, 16))
-        f.create_dataset("uint16_data", data=np.arange(100, dtype=np.uint16).reshape(10, 10))
+        f.create_dataset(
+            "uint8_data", data=np.arange(256, dtype=np.uint8).reshape(16, 16)
+        )
+        f.create_dataset(
+            "uint16_data",
+            data=np.arange(100, dtype=np.uint16).reshape(10, 10),
+        )
 
     # 10. Superblock v0 (libver='earliest')
     with h5py.File(_GENERATED_DIR / "superblock_v0.h5", "w", libver="earliest") as f:
@@ -219,10 +224,9 @@ async def h5py_comparison(filepath: str, group: str | None = None):
     Opens the file with both async-hdf5 (via open_lazy_hdf5) and h5py,
     then compares dataset shapes, dtypes, and array values.
     """
+    from async_hdf5 import open_lazy_hdf5
     from obspec_utils.registry import ObjectStoreRegistry
     from obstore.store import LocalStore
-
-    from async_hdf5 import open_lazy_hdf5
 
     store = LocalStore()
     registry = ObjectStoreRegistry()
@@ -286,10 +290,9 @@ async def metadata_only_check(filepath: str, group: str | None = None):
     Useful for files where data loading fails due to unsupported codecs but
     metadata parsing should still work.
     """
+    from async_hdf5 import open_lazy_hdf5
     from obspec_utils.registry import ObjectStoreRegistry
     from obstore.store import LocalStore
-
-    from async_hdf5 import open_lazy_hdf5
 
     store = LocalStore()
     registry = ObjectStoreRegistry()

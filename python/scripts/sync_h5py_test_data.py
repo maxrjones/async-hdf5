@@ -87,9 +87,7 @@ def find_local_files() -> set[str]:
         return set()
     files = set()
     for ext in EXTENSIONS:
-        files.update(
-            str(f.relative_to(H5PY_DIR)) for f in H5PY_DIR.rglob(f"*{ext}")
-        )
+        files.update(str(f.relative_to(H5PY_DIR)) for f in H5PY_DIR.rglob(f"*{ext}"))
     return files
 
 
