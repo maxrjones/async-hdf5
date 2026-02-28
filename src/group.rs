@@ -38,6 +38,7 @@ pub struct HDF5Group {
     name: String,
     header: ObjectHeader,
     reader: Arc<dyn AsyncFileReader>,
+    raw_reader: Arc<dyn AsyncFileReader>,
     superblock: Arc<Superblock>,
 }
 
@@ -47,12 +48,14 @@ impl HDF5Group {
         name: String,
         header: ObjectHeader,
         reader: Arc<dyn AsyncFileReader>,
+        raw_reader: Arc<dyn AsyncFileReader>,
         superblock: Arc<Superblock>,
     ) -> Self {
         Self {
             name,
             header,
             reader,
+            raw_reader,
             superblock,
         }
     }
@@ -125,6 +128,7 @@ impl HDF5Group {
             name.to_string(),
             header,
             Arc::clone(&self.reader),
+            Arc::clone(&self.raw_reader),
             Arc::clone(&self.superblock),
         ))
     }
@@ -154,6 +158,7 @@ impl HDF5Group {
             name.to_string(),
             header,
             Arc::clone(&self.reader),
+            Arc::clone(&self.raw_reader),
             Arc::clone(&self.superblock),
         )
     }
@@ -190,6 +195,7 @@ impl HDF5Group {
             self.name.clone(),
             self.header.clone(),
             Arc::clone(&self.reader),
+            Arc::clone(&self.raw_reader),
             Arc::clone(&self.superblock),
         );
 

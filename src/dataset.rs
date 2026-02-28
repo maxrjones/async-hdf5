@@ -1,4 +1,8 @@
+use std::ops::Range;
 use std::sync::Arc;
+
+use bytes::Bytes;
+use tokio::sync::OnceCell;
 
 use crate::btree;
 use crate::chunk_index::{ChunkIndex, ChunkLocation};
@@ -27,6 +31,8 @@ pub struct HDF5Dataset {
     name: String,
     header: ObjectHeader,
     reader: Arc<dyn AsyncFileReader>,
+    /// Raw (uncached) reader for batch chunk data fetches.
+    raw_reader: Arc<dyn AsyncFileReader>,
     superblock: Arc<Superblock>,
 
     // Parsed metadata (cached on construction)
@@ -35,6 +41,9 @@ pub struct HDF5Dataset {
     layout: StorageLayout,
     filters: FilterPipeline,
     fill_value: Option<Vec<u8>>,
+
+    /// Cached chunk index (lazily resolved on first access).
+    cached_chunk_index: OnceCell<ChunkIndex>,
 }
 
 impl HDF5Dataset {
@@ -43,6 +52,7 @@ impl HDF5Dataset {
         name: String,
         header: ObjectHeader,
         reader: Arc<dyn AsyncFileReader>,
+        raw_reader: Arc<dyn AsyncFileReader>,
         superblock: Arc<Superblock>,
     ) -> Result<Self> {
         // Parse dataspace
@@ -94,12 +104,14 @@ impl HDF5Dataset {
             name,
             header,
             reader,
+            raw_reader,
             superblock,
             shape: dataspace.dimensions,
             dtype,
             layout,
             filters,
             fill_value,
+            cached_chunk_index: OnceCell::new(),
         })
     }
 
@@ -172,12 +184,19 @@ impl HDF5Dataset {
         self.attributes().await.into_iter().find(|a| a.name == name)
     }
 
-    /// Extract the chunk index — the key async operation.
+    /// Extract the chunk index, caching the result after first resolution.
     ///
     /// For chunked datasets, traverses the B-tree to enumerate all chunks.
     /// For contiguous datasets, returns a single-entry index.
     /// For compact datasets, returns an empty index (data is inline in the header).
-    pub async fn chunk_index(&self) -> Result<ChunkIndex> {
+    pub async fn chunk_index(&self) -> Result<&ChunkIndex> {
+        self.cached_chunk_index
+            .get_or_try_init(|| self.resolve_chunk_index())
+            .await
+    }
+
+    /// Internal: actually resolve the chunk index (no caching).
+    async fn resolve_chunk_index(&self) -> Result<ChunkIndex> {
         match &self.layout {
             StorageLayout::Compact { .. } => {
                 // Compact: data is in the object header. No file-level chunks.
@@ -525,6 +544,66 @@ impl HDF5Dataset {
             chunk_shape.to_vec(),
             self.shape.clone(),
         ))
+    }
+
+    /// Fetch multiple chunks in a single batched I/O call.
+    ///
+    /// Looks up byte ranges from the chunk index and fetches them all via
+    /// `raw_reader.get_byte_ranges()`, bypassing the `BlockCache`.
+    ///
+    /// Returns one entry per input index, in the same order.  Chunks that
+    /// are not present in the index (unallocated) are returned as `None`.
+    pub async fn batch_get_chunks(
+        &self,
+        chunk_indices: &[Vec<u64>],
+    ) -> Result<Vec<Option<Bytes>>> {
+        let index = self.chunk_index().await?;  // cached after first call
+
+        // Collect byte ranges for all requested chunks
+        let mut ranges: Vec<Range<u64>> = Vec::new();
+        let mut range_map: Vec<Option<usize>> = Vec::with_capacity(chunk_indices.len());
+
+        for indices in chunk_indices {
+            if let Some(loc) = index.get(indices) {
+                range_map.push(Some(ranges.len()));
+                ranges.push(loc.byte_offset..loc.byte_offset + loc.byte_length);
+            } else {
+                range_map.push(None);
+            }
+        }
+
+        if ranges.is_empty() {
+            return Ok(vec![None; chunk_indices.len()]);
+        }
+
+        // Single batched fetch via raw reader (bypasses BlockCache)
+        let fetched = self.raw_reader.get_byte_ranges(ranges).await?;
+
+        // Map results back to input order
+        let mut results = Vec::with_capacity(chunk_indices.len());
+        for mapping in &range_map {
+            match mapping {
+                Some(idx) => results.push(Some(fetched[*idx].clone())),
+                None => results.push(None),
+            }
+        }
+        Ok(results)
+    }
+
+    /// Fetch multiple byte ranges in a single batched I/O call.
+    ///
+    /// Unlike `batch_get_chunks`, this takes pre-resolved `(offset, length)`
+    /// pairs — no chunk index lookup is performed.  Use this when the caller
+    /// has already resolved the chunk index and wants to avoid re-parsing.
+    pub async fn batch_fetch_ranges(
+        &self,
+        ranges: &[(u64, u64)],
+    ) -> Result<Vec<Bytes>> {
+        let byte_ranges: Vec<Range<u64>> = ranges
+            .iter()
+            .map(|&(offset, length)| offset..offset + length)
+            .collect();
+        self.raw_reader.get_byte_ranges(byte_ranges).await
     }
 
     /// Handle single-chunk datasets (chunk indexing type 1).

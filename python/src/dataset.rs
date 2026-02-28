@@ -177,7 +177,52 @@ impl PyHDF5Dataset {
             let index = ds.chunk_index().await.map_err(|e| {
                 pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
             })?;
-            Ok(PyChunkIndex::new(index))
+            Ok(PyChunkIndex::new(index.clone()))
+        })
+    }
+
+    /// Fetch multiple chunks in a single batched I/O call.
+    ///
+    /// Takes a list of chunk index tuples and returns a list of
+    /// ``bytes | None`` in the same order.
+    fn batch_get_chunks<'py>(
+        &'py self,
+        py: Python<'py>,
+        chunk_indices: Vec<Vec<u64>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let ds = self.inner.clone();
+        future_into_py(py, async move {
+            let results = ds
+                .batch_get_chunks(&chunk_indices)
+                .await
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            Ok(results
+                .into_iter()
+                .map(|r| r.map(|b| b.to_vec()))
+                .collect::<Vec<_>>())
+        })
+    }
+
+    /// Fetch multiple byte ranges in a single batched I/O call.
+    ///
+    /// Takes a list of ``(offset, length)`` tuples and returns a list of
+    /// ``bytes`` in the same order.  No chunk index lookup is performed —
+    /// the caller must supply pre-resolved byte ranges.
+    fn batch_fetch_ranges<'py>(
+        &'py self,
+        py: Python<'py>,
+        ranges: Vec<(u64, u64)>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let ds = self.inner.clone();
+        future_into_py(py, async move {
+            let results = ds
+                .batch_fetch_ranges(&ranges)
+                .await
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            Ok(results
+                .into_iter()
+                .map(|b| b.to_vec())
+                .collect::<Vec<_>>())
         })
     }
 

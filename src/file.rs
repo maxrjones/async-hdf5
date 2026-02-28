@@ -27,6 +27,8 @@ use crate::superblock::Superblock;
 #[derive(Debug)]
 pub struct HDF5File {
     reader: Arc<dyn AsyncFileReader>,
+    /// Raw (uncached) reader for direct byte-range fetches (e.g., batch chunk data).
+    raw_reader: Arc<dyn AsyncFileReader>,
     superblock: Superblock,
 }
 
@@ -44,23 +46,53 @@ impl HDF5File {
         reader: impl AsyncFileReader,
         block_size: u64,
     ) -> Result<Self> {
-        let cached = BlockCache::new(reader).with_block_size(block_size);
+        Self::open_with_options(reader, block_size, None).await
+    }
+
+    /// Open with configurable block cache size and optional pre-warming.
+    ///
+    /// If `pre_warm_threshold` is `Some(n)`, the file size is queried via
+    /// `AsyncFileReader::file_size()` and up to `n` bytes of cache blocks
+    /// are fetched in parallel before returning.  For files smaller than `n`,
+    /// every block is fetched.  For larger files, the first `n` bytes worth
+    /// of blocks are fetched (HDF5 metadata is typically concentrated near
+    /// the start of the file).  This eliminates sequential cache misses
+    /// during B-tree / object-header traversal.
+    pub async fn open_with_options(
+        reader: impl AsyncFileReader,
+        block_size: u64,
+        pre_warm_threshold: Option<u64>,
+    ) -> Result<Self> {
+        let raw: Arc<dyn AsyncFileReader> = Arc::new(reader);
+        let cached = BlockCache::new(raw.clone()).with_block_size(block_size);
+
+        // Pre-warm: fetch blocks in parallel up to the threshold.
+        if let Some(threshold) = pre_warm_threshold {
+            if let Some(size) = raw.file_size().await? {
+                cached.pre_warm(size, threshold).await?;
+            }
+        }
 
         let initial_bytes = cached.get_bytes(0..block_size.min(64 * 1024)).await?;
         let (superblock, _offset) = Superblock::parse(&initial_bytes)?;
 
         Ok(Self {
             reader: Arc::new(cached),
+            raw_reader: raw,
             superblock,
         })
     }
 
     /// Open with an already-configured reader (e.g., a pre-built `BlockCache`).
+    ///
+    /// Note: `raw_reader` is set to the same reader. If you need batch chunk
+    /// fetches to bypass a cache layer, use `open` or `open_with_block_size`.
     pub async fn open_raw(reader: Arc<dyn AsyncFileReader>) -> Result<Self> {
         let initial_bytes = reader.get_bytes(0..64 * 1024).await?;
         let (superblock, _offset) = Superblock::parse(&initial_bytes)?;
 
         Ok(Self {
+            raw_reader: reader.clone(),
             reader,
             superblock,
         })
@@ -93,6 +125,11 @@ impl HDF5File {
             .await
     }
 
+    /// Access the raw (uncached) reader for direct byte-range fetches.
+    pub fn raw_reader(&self) -> &Arc<dyn AsyncFileReader> {
+        &self.raw_reader
+    }
+
     /// Get the root group as an `HDF5Group` for navigation.
     pub async fn root_group(&self) -> Result<HDF5Group> {
         let header = self.root_group_header().await?;
@@ -100,6 +137,7 @@ impl HDF5File {
             "/".to_string(),
             header,
             Arc::clone(&self.reader),
+            Arc::clone(&self.raw_reader),
             Arc::new(self.superblock.clone()),
         ))
     }

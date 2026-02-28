@@ -39,6 +39,8 @@ from zarr.core.metadata.v3 import ArrayV3Metadata
 from async_hdf5 import HDF5Dataset, HDF5File, HDF5Group
 
 if TYPE_CHECKING:
+    import asyncio
+
     from async_hdf5 import ChunkIndex
     from obspec_utils.registry import ObjectStoreRegistry
 
@@ -309,6 +311,83 @@ def _assign_phony_dims(
 
 
 # ---------------------------------------------------------------------------
+# Chunk batcher (DataLoader pattern)
+# ---------------------------------------------------------------------------
+
+
+class _ChunkBatcher:
+    """Accumulates chunk requests within one event-loop tick and flushes them
+    as a single ``HDF5Dataset.batch_fetch_ranges()`` call.
+
+    zarr-python's codec pipeline calls ``store.get()`` individually per chunk
+    via ``asyncio.gather``.  Because all those coroutines are scheduled in the
+    same tick, we can collect them and issue one batched Rust-level fetch that
+    uses ``object_store::get_ranges()`` under the hood.
+
+    The chunk index (B-tree) is resolved once on first flush and cached.
+    Subsequent flushes only perform the raw data fetch.
+    """
+
+    __slots__ = ("_dataset", "_chunk_index", "_pending", "_flush_scheduled")
+
+    def __init__(self, hdf5_dataset: HDF5Dataset) -> None:
+        self._dataset = hdf5_dataset
+        self._chunk_index: ChunkIndex | None = None
+        self._pending: list[tuple[list[int], asyncio.Future[bytes | None]]] = []
+        self._flush_scheduled = False
+
+    async def get_chunk(self, indices: list[int]) -> bytes | None:
+        """Request a single chunk.  The actual I/O is deferred until flush."""
+        import asyncio
+
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[bytes | None] = loop.create_future()
+        self._pending.append((indices, future))
+        if not self._flush_scheduled:
+            self._flush_scheduled = True
+            loop.call_soon(lambda: asyncio.ensure_future(self._flush()))
+        return await future
+
+    async def _flush(self) -> None:
+        self._flush_scheduled = False
+        batch = self._pending
+        self._pending = []
+        if not batch:
+            return
+
+        # Resolve chunk index once (B-tree traversal via BlockCache)
+        if self._chunk_index is None:
+            self._chunk_index = await self._dataset.chunk_index()
+
+        futures = [b[1] for b in batch]
+        try:
+            # Look up byte ranges in Python (fast, cached index)
+            ranges: list[tuple[int, int]] = []
+            range_map: list[int | None] = []
+            for indices, _fut in batch:
+                loc = self._chunk_index.get(indices)
+                if loc is not None:
+                    range_map.append(len(ranges))
+                    ranges.append((loc.byte_offset, loc.byte_length))
+                else:
+                    range_map.append(None)
+
+            if ranges:
+                # Single batched fetch via raw reader (bypasses BlockCache)
+                fetched = await self._dataset.batch_fetch_ranges(ranges)
+            else:
+                fetched = []
+
+            for fut, mapping in zip(futures, range_map):
+                if not fut.done():
+                    fut.set_result(fetched[mapping] if mapping is not None else None)
+        except Exception as exc:
+            for fut in futures:
+                if not fut.done():
+                    fut.set_exception(exc)
+
+
+# ---------------------------------------------------------------------------
 # LazyHDF5Store
 # ---------------------------------------------------------------------------
 
@@ -339,6 +418,7 @@ class LazyHDF5Store(Store):
     _file_url: str
     _registry: ObjectStoreRegistry
     _chunk_indices: dict[str, ChunkIndex]
+    _batchers: dict[str, _ChunkBatcher]
     _group_metadata: GroupMetadata
 
     def __init__(
@@ -355,6 +435,7 @@ class LazyHDF5Store(Store):
         self._file_url = file_url
         self._registry = registry
         self._chunk_indices = {}
+        self._batchers = {}
         self._group_metadata = GroupMetadata(attributes=_sanitize_attrs(group_attrs))
 
     def __eq__(self, other: object) -> bool:
@@ -396,6 +477,13 @@ class LazyHDF5Store(Store):
         # Chunk data — lazily resolve chunk index
         return await self._get_chunk_data(var_name, info, suffix, prototype, byte_range)
 
+    def _ensure_batcher(self, var_name: str) -> _ChunkBatcher:
+        """Get or create a chunk batcher for the given variable."""
+        if var_name not in self._batchers:
+            info = self._dataset_infos[var_name]
+            self._batchers[var_name] = _ChunkBatcher(info.hdf5_dataset)
+        return self._batchers[var_name]
+
     async def _get_chunk_data(
         self,
         var_name: str,
@@ -404,51 +492,26 @@ class LazyHDF5Store(Store):
         prototype: BufferPrototype,
         byte_range: ByteRequest | None,
     ) -> Buffer | None:
-        """Fetch chunk data, lazily parsing the chunk index on first access."""
-        # Lazily parse chunk index
-        if var_name not in self._chunk_indices:
-            self._chunk_indices[var_name] = await info.hdf5_dataset.chunk_index()
-
-        chunk_index = self._chunk_indices[var_name]
+        """Fetch chunk data via batched Rust-level I/O."""
         separator: str = getattr(
             info.array_metadata.chunk_key_encoding, "separator", "/"
         )
         indices = _parse_chunk_key(suffix, separator)
-        location = chunk_index.get(list(indices))
-        if location is None:
+
+        batcher = self._ensure_batcher(var_name)
+        raw_data = await batcher.get_chunk(list(indices))
+        if raw_data is None:
             return None
 
-        offset = location.byte_offset
-        length = location.byte_length
-
-        # Route to the correct object store
-        store, _path_after_prefix = self._registry.resolve(self._file_url)
-        if not store:
-            raise ValueError(
-                f"Could not find a store for {self._file_url} in the registry"
+        # Apply byte_range slicing if the codec pipeline requests a sub-range
+        if byte_range is not None:
+            chunk_len = len(raw_data)
+            resolved = _transform_byte_range(
+                byte_range, chunk_start=0, chunk_end_exclusive=chunk_len
             )
+            raw_data = raw_data[resolved.start : resolved.end]
 
-        path_in_store = urlparse(self._file_url).path
-        if hasattr(store, "prefix") and store.prefix:
-            prefix = str(store.prefix).lstrip("/")
-        elif hasattr(store, "url"):
-            prefix = urlparse(store.url).path.lstrip("/")
-        else:
-            prefix = ""
-        path_in_store = path_in_store.lstrip("/").removeprefix(prefix).lstrip("/")
-
-        # Transform byte range to account for chunk location in file
-        chunk_end = offset + length
-        resolved_range = _transform_byte_range(
-            byte_range, chunk_start=offset, chunk_end_exclusive=chunk_end
-        )
-
-        data = await store.get_range_async(
-            path_in_store,
-            start=resolved_range.start,
-            end=resolved_range.end,
-        )
-        return prototype.buffer.from_bytes(data)
+        return prototype.buffer.from_bytes(raw_data)
 
     def _get_group_metadata(self, prototype: BufferPrototype) -> Buffer:
         buf_dict = self._group_metadata.to_buffer_dict(prototype=prototype)
@@ -624,6 +687,7 @@ async def open_lazy_hdf5(
     registry: ObjectStoreRegistry | None = None,
     drop_variables: Iterable[str] | None = None,
     block_size: int = 8 * 1024 * 1024,
+    pre_warm_threshold: int | None = None,
 ) -> Any:
     """Open an HDF5 file as a lazy xarray Dataset.
 
@@ -648,6 +712,13 @@ async def open_lazy_hdf5(
         Variable names to exclude.
     block_size
         BlockCache size in bytes (default 8 MiB).
+    pre_warm_threshold
+        Maximum bytes of cache blocks to pre-fetch in parallel during open
+        (default ``None`` — disabled).  When set, the file size is queried
+        and up to *threshold* bytes of blocks are fetched in a single
+        batched call.  This trades bandwidth for latency: useful on very
+        fast connections or for small files, but counterproductive when
+        the file is large relative to the connection speed.
 
     Returns
     -------
@@ -659,7 +730,9 @@ async def open_lazy_hdf5(
     from obspec_utils.registry import ObjectStoreRegistry as Registry
 
     # Phase 1: parse superblock + group structure
-    f = await HDF5File.open(path, store=store, block_size=block_size)
+    f = await HDF5File.open(
+        path, store=store, block_size=block_size, pre_warm_threshold=pre_warm_threshold
+    )
     root = await f.root_group()
     target = (await root.navigate(group)) if group else root
 

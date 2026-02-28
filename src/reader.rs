@@ -28,6 +28,12 @@ pub trait AsyncFileReader: Debug + Send + Sync + 'static {
         }
         Ok(result)
     }
+
+    /// Return the total file size, if known.  Used by `BlockCache::pre_warm`
+    /// to fetch all blocks in parallel.  The default returns `None`.
+    async fn file_size(&self) -> Result<Option<u64>> {
+        Ok(None)
+    }
 }
 
 #[async_trait]
@@ -39,6 +45,10 @@ impl AsyncFileReader for Box<dyn AsyncFileReader + '_> {
     async fn get_byte_ranges(&self, ranges: Vec<Range<u64>>) -> Result<Vec<Bytes>> {
         self.as_ref().get_byte_ranges(ranges).await
     }
+
+    async fn file_size(&self) -> Result<Option<u64>> {
+        self.as_ref().file_size().await
+    }
 }
 
 #[async_trait]
@@ -49,6 +59,10 @@ impl AsyncFileReader for Arc<dyn AsyncFileReader + '_> {
 
     async fn get_byte_ranges(&self, ranges: Vec<Range<u64>>) -> Result<Vec<Bytes>> {
         self.as_ref().get_byte_ranges(ranges).await
+    }
+
+    async fn file_size(&self) -> Result<Option<u64>> {
+        self.as_ref().file_size().await
     }
 }
 
@@ -87,6 +101,17 @@ impl AsyncFileReader for ObjectReader {
             .get_ranges(&self.path, &ranges)
             .await
             .map_err(HDF5Error::from)
+    }
+
+    async fn file_size(&self) -> Result<Option<u64>> {
+        use object_store::ObjectStoreExt;
+
+        let meta: object_store::ObjectMeta = self
+            .store
+            .head(&self.path)
+            .await
+            .map_err(HDF5Error::from)?;
+        Ok(Some(meta.size as u64))
     }
 }
 
@@ -285,6 +310,50 @@ impl<F: AsyncFileReader + Send + Sync> AsyncFileReader for BlockCache<F> {
 }
 
 impl<F: AsyncFileReader> BlockCache<F> {
+    /// Pre-fetch blocks in parallel to eliminate sequential cache misses
+    /// during metadata traversal (B-tree parsing, object headers, etc.).
+    ///
+    /// - If `max_bytes` covers the entire file, every block is fetched.
+    /// - Otherwise only the first `max_bytes / block_size` blocks are fetched
+    ///   (HDF5 metadata — superblock, root group, B-tree nodes — is typically
+    ///   concentrated near the beginning of the file).
+    ///
+    /// Issues a single batched `get_byte_ranges` call so that the backend
+    /// can coalesce and parallelize the fetches.
+    pub async fn pre_warm(&self, file_size: u64, max_bytes: u64) -> Result<()> {
+        let warm_end = file_size.min(max_bytes);
+        let num_blocks = (warm_end + self.block_size - 1) / self.block_size;
+
+        // Collect ranges for blocks not already cached.
+        let mut ranges: Vec<Range<u64>> = Vec::new();
+        let mut block_starts: Vec<u64> = Vec::new();
+        {
+            let cache = self.blocks.lock().await;
+            for i in 0..num_blocks {
+                let start = i * self.block_size;
+                if !cache.contains_key(&start) {
+                    let end = (start + self.block_size).min(file_size);
+                    ranges.push(start..end);
+                    block_starts.push(start);
+                }
+            }
+        }
+
+        if ranges.is_empty() {
+            return Ok(());
+        }
+
+        // Single batched fetch — object_store will coalesce and parallelize.
+        let fetched = self.inner.get_byte_ranges(ranges).await?;
+
+        let mut cache = self.blocks.lock().await;
+        for (start, data) in block_starts.into_iter().zip(fetched) {
+            cache.insert(start, data);
+        }
+
+        Ok(())
+    }
+
     /// Ensure a block is in the cache, fetching it if not.
     async fn ensure_block(&self, block_start: u64) -> Result<Bytes> {
         {

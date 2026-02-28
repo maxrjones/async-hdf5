@@ -11,11 +11,11 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3_async_runtimes::tokio::into_future;
 use pyo3_bytes::PyBytes;
-use pyo3_object_store::PyObjectStore;
+use pyo3_object_store::AnyObjectStore;
 
 #[derive(FromPyObject)]
 pub(crate) enum StoreInput {
-    ObjectStore(PyObjectStore),
+    ObjectStore(AnyObjectStore),
     ObspecBackend(ObspecBackend),
 }
 
@@ -23,7 +23,8 @@ impl StoreInput {
     pub(crate) fn into_async_file_reader(self, path: String) -> Arc<dyn AsyncFileReader> {
         match self {
             Self::ObjectStore(store) => {
-                Arc::new(ObjectReader::new(store.into_inner(), path.into()))
+                let inner: Arc<dyn object_store::ObjectStore> = store.into();
+                Arc::new(ObjectReader::new(inner, path.into()))
             }
             Self::ObspecBackend(backend) => Arc::new(ObspecReader { backend, path }),
         }
@@ -69,6 +70,22 @@ impl ObspecBackend {
         })?;
         let result = future.await?;
         Python::attach(|py| result.extract(py))
+    }
+
+    async fn head(&self, path: &str) -> PyResult<u64> {
+        let future = Python::attach(|py| {
+            let coroutine = self
+                .0
+                .call_method1(py, intern!(py, "head_async"), (path,))?;
+            into_future(coroutine.bind(py).clone())
+        })?;
+        let result = future.await?;
+        Python::attach(|py| {
+            // obspec ObjectMeta has a .size attribute
+            result
+                .getattr(py, intern!(py, "size"))?
+                .extract::<u64>(py)
+        })
     }
 
     async fn get_range_wrapper(&self, path: &str, range: Range<u64>) -> HDF5Result<Bytes> {
@@ -121,5 +138,12 @@ impl AsyncFileReader for ObspecReader {
 
     async fn get_byte_ranges(&self, ranges: Vec<Range<u64>>) -> HDF5Result<Vec<Bytes>> {
         self.backend.get_ranges_wrapper(&self.path, ranges).await
+    }
+
+    async fn file_size(&self) -> HDF5Result<Option<u64>> {
+        match self.backend.head(&self.path).await {
+            Ok(size) => Ok(Some(size)),
+            Err(_) => Ok(None), // backend doesn't support head_async
+        }
     }
 }
