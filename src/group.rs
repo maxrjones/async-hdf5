@@ -408,6 +408,7 @@ impl HDF5Group {
 
         Ok(entries
             .into_iter()
+            .filter(|e| e.cache_type != 2) // skip symbolic links
             .map(|e| ChildLink {
                 name: e.name,
                 address: e.object_header_address,

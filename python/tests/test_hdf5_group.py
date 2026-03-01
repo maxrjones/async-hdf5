@@ -6,14 +6,12 @@ dimension scales, and edge cases. Many of these are intentionally corrupted or
 use exotic features (family drivers, virtual datasets, onion VFD, etc.) that
 are not relevant for cloud-native HDF5 reading.
 
-Result summary (HDF5 2.0.0): 216 passed, 215 xfailed.
+Result summary (HDF5 2.0.0): 225 passed, 206 xfailed.
 
 Top failure categories:
   - 44 I/O error (truncated/split files, family driver members)
   - 36 Not an HDF5 file (multi/onion VFD fragments)
-  -  0 ExtensibleArray chunk indexing (fixed: now supported)
   - 12 object header data too short
-  -  0 Unknown reference type (fixed: now skipped with warning)
   -  8 Virtual dataset layout (class 3)
   -  7 dtype V != S/O/c (string/reference/complex mapped to void)
   -  7 Unsupported datatype class (2, 11, 15)
@@ -105,12 +103,6 @@ xfail_files: set[str] = {
     "tools/test/testfiles/h5clear_status_noclose.h5",
     "tools/test/testfiles/h5copytst.h5",
     "tools/test/testfiles/h5copytst_new.h5",
-    "tools/test/testfiles/h5diff_ext2softlink_trg.h5",
-    "tools/test/testfiles/h5diff_grp_recurse_ext1.h5",
-    "tools/test/testfiles/h5diff_grp_recurse_ext2-1.h5",
-    "tools/test/testfiles/h5diff_linked_softlink.h5",
-    "tools/test/testfiles/h5diff_links.h5",
-    "tools/test/testfiles/h5diff_softlinks.h5",
     "tools/test/testfiles/h5diff_strings1.h5",
     "tools/test/testfiles/h5diff_strings2.h5",
     "tools/test/testfiles/h5diff_types.h5",
@@ -196,7 +188,6 @@ xfail_files: set[str] = {
     "tools/test/testfiles/tfvalues.h5",
     "tools/test/testfiles/tldouble.h5",
     "tools/test/testfiles/tldouble_scalar.h5",
-    "tools/test/testfiles/tlonglinks.h5",
     "tools/test/testfiles/tmulti-b.h5",
     "tools/test/testfiles/tmulti-g.h5",
     "tools/test/testfiles/tmulti-l.h5",
@@ -211,8 +202,6 @@ xfail_files: set[str] = {
     "tools/test/testfiles/tscalarintattrsize.h5",
     "tools/test/testfiles/tscalarintsize.h5",
     "tools/test/testfiles/tscalarstring.h5",
-    "tools/test/testfiles/tslink.h5",
-    "tools/test/testfiles/tsoftlinks.h5",
     "tools/test/testfiles/tsplit_file-m.h5",
     "tools/test/testfiles/tsplit_file-r.h5",
     "tools/test/testfiles/tstr.h5",

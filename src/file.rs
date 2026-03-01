@@ -152,12 +152,22 @@ pub(crate) async fn read_object_header(
 ) -> Result<ObjectHeader> {
     // Initial fetch — 4 KB is usually enough for one object header.
     let initial_size = 4096u64;
-    let data = reader.get_bytes(address..address + initial_size).await?;
+    let end = address.checked_add(initial_size).ok_or_else(|| {
+        crate::error::HDF5Error::General(format!(
+            "object header address {address:#x} overflows when computing fetch range"
+        ))
+    })?;
+    let data = reader.get_bytes(address..end).await?;
 
     // Check if the first chunk is larger than our initial fetch and re-fetch if needed.
     let needed = peek_object_header_size(&data)?;
     let data = if needed > initial_size {
-        reader.get_bytes(address..address + needed).await?
+        let end = address.checked_add(needed).ok_or_else(|| {
+            crate::error::HDF5Error::General(format!(
+                "object header address {address:#x} overflows when computing fetch range"
+            ))
+        })?;
+        reader.get_bytes(address..end).await?
     } else {
         data
     };
@@ -168,7 +178,12 @@ pub(crate) async fn read_object_header(
     // themselves contain further continuation messages (nested chains).
     let mut pending = header.continuation_addresses(size_of_offsets, size_of_lengths)?;
     while let Some((cont_addr, cont_len)) = pending.pop() {
-        let cont_data = reader.get_bytes(cont_addr..cont_addr + cont_len).await?;
+        let cont_end = cont_addr.checked_add(cont_len).ok_or_else(|| {
+            crate::error::HDF5Error::General(format!(
+                "continuation address {cont_addr:#x} + length {cont_len:#x} overflows"
+            ))
+        })?;
+        let cont_data = reader.get_bytes(cont_addr..cont_end).await?;
         let new_messages = parse_continuation_chunk(
             &cont_data,
             size_of_offsets,

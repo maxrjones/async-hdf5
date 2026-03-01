@@ -46,6 +46,12 @@ if TYPE_CHECKING:
 
 __all__ = ["HDF5Store", "open_hdf5"]
 
+# When the total number of chunks exceeds this threshold, listing methods
+# resolve the chunk index and yield only allocated chunks instead of
+# enumerating the full Cartesian product of the grid shape.  This prevents
+# hangs on large, sparse datasets (e.g. shape 10^9 × 10^9 with small chunks).
+_MAX_DENSE_GRID_SIZE = 10_000_000
+
 
 # ---------------------------------------------------------------------------
 # Chunk key parsing (adapted from VirtualiZarr manifests/utils.py)
@@ -517,7 +523,7 @@ class HDF5Store(Store):
             if info.shape == ():
                 yield f"{name}/c"
             else:
-                for key in _iter_chunk_keys(info.grid_shape, separator):
+                async for key in self._iter_chunk_keys_for(name, info, separator):
                     yield f"{name}/c{separator}{key}"
 
     async def list_prefix(self, prefix: str) -> AsyncGenerator[str, None]:
@@ -543,8 +549,37 @@ class HDF5Store(Store):
                 if info.shape == ():
                     yield "c"
                 else:
-                    for key in _iter_chunk_keys(info.grid_shape, separator):
+                    async for key in self._iter_chunk_keys_for(
+                        prefix, info, separator
+                    ):
                         yield f"c{separator}{key}"
+
+    async def _iter_chunk_keys_for(
+        self,
+        var_name: str,
+        info: _DatasetInfo,
+        separator: str,
+    ) -> AsyncGenerator[str, None]:
+        """Yield chunk keys for a variable.
+
+        For small grids (< 10 million chunks) this yields the full Cartesian
+        product.  For large grids the chunk index is resolved first and only
+        keys for *allocated* chunks are yielded — this avoids hanging on sparse
+        datasets with enormous grid shapes.
+        """
+        import math
+
+        total = math.prod(info.grid_shape) if info.grid_shape else 1
+        if total <= _MAX_DENSE_GRID_SIZE:
+            for key in _iter_chunk_keys(info.grid_shape, separator):
+                yield key
+        else:
+            # Sparse path: resolve the chunk index and yield only existing keys
+            batcher = self._ensure_batcher(var_name)
+            if batcher._chunk_index is None:
+                batcher._chunk_index = await info.hdf5_dataset.chunk_index()
+            for loc in batcher._chunk_index:
+                yield separator.join(str(i) for i in loc.indices)
 
     @property
     def supports_consolidated_metadata(self) -> bool:
