@@ -4,7 +4,7 @@ build:
   os: ubuntu-24.04
   tools:
     python: "3.12"
-    rust: "1.80"
+    rust: "1.91"
   commands:
     - pip install uv
     - cd python && uv sync --group docs --no-install-package async-hdf5
