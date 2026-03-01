@@ -302,9 +302,7 @@ impl DataType {
         let tag_len = (class_bits & 0xFF) as usize;
         let tag_bytes = r.read_bytes(tag_len)?;
         let tag = String::from_utf8_lossy(&tag_bytes).trim_end_matches('\0').to_string();
-        // Pad to multiple of 8
-        let pad = (8 - (tag_len % 8)) % 8;
-        r.skip(pad as u64);
+        r.skip_field_padding(tag_len, 8);
 
         Ok(DataType::Opaque { size, tag })
     }
@@ -319,22 +317,12 @@ impl DataType {
         let mut fields = Vec::with_capacity(num_members);
 
         for _ in 0..num_members {
-            // Read null-terminated name
-            let mut name_bytes = Vec::new();
-            loop {
-                let b = r.read_u8()?;
-                if b == 0 {
-                    break;
-                }
-                name_bytes.push(b);
-            }
-            let name = String::from_utf8_lossy(&name_bytes).to_string();
+            let name = r.read_null_terminated_string()?;
 
             // Version 1 & 2: pad name to multiple of 8 bytes (including null terminator)
             if version < 3 {
-                let name_total = name_bytes.len() + 1; // including null
-                let pad = (8 - (name_total % 8)) % 8;
-                r.skip(pad as u64);
+                let name_total = name.len() + 1; // including null
+                r.skip_field_padding(name_total, 8);
             }
 
             // Byte offset of member
@@ -379,15 +367,7 @@ impl DataType {
 
         let mut names = Vec::with_capacity(num_members);
         for _ in 0..num_members {
-            let mut name_bytes = Vec::new();
-            loop {
-                let b = r.read_u8()?;
-                if b == 0 {
-                    break;
-                }
-                name_bytes.push(b);
-            }
-            names.push(String::from_utf8_lossy(&name_bytes).to_string());
+            names.push(r.read_null_terminated_string()?);
         }
 
         let member_size = base_type.size() as usize;

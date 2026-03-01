@@ -297,34 +297,12 @@ impl AttributeMessage {
         let name = String::from_utf8_lossy(&name_bytes)
             .trim_end_matches('\0')
             .to_string();
-        let name_pad = (8 - (name_size % 8)) % 8;
-        r.skip(name_pad as u64);
+        r.skip_field_padding(name_size, 8);
 
-        // Datatype
-        let dt_start = r.position() as usize;
-        let dt_bytes = data.slice(dt_start..dt_start + datatype_size);
-        let dtype = DataType::parse(&dt_bytes)?;
-        r.skip(datatype_size as u64);
-        let dt_pad = (8 - (datatype_size % 8)) % 8;
-        r.skip(dt_pad as u64);
+        let (dtype, dataspace, raw_value) =
+            parse_dtype_dataspace_value(r, data, datatype_size, dataspace_size, size_of_lengths, true)?;
 
-        // Dataspace
-        let ds_start = r.position() as usize;
-        let ds_bytes = data.slice(ds_start..ds_start + dataspace_size);
-        let dataspace = DataspaceMessage::parse(&ds_bytes, size_of_lengths)?;
-        r.skip(dataspace_size as u64);
-        let ds_pad = (8 - (dataspace_size % 8)) % 8;
-        r.skip(ds_pad as u64);
-
-        // Value
-        let raw_value = extract_raw_value(r, data, &dataspace, &dtype);
-
-        Ok(Self {
-            name,
-            dtype,
-            dataspace,
-            raw_value,
-        })
+        Ok(Self { name, dtype, dataspace, raw_value })
     }
 
     fn parse_v2(
@@ -344,24 +322,10 @@ impl AttributeMessage {
             .trim_end_matches('\0')
             .to_string();
 
-        let dt_start = r.position() as usize;
-        let dt_bytes = data.slice(dt_start..dt_start + datatype_size);
-        let dtype = DataType::parse(&dt_bytes)?;
-        r.skip(datatype_size as u64);
+        let (dtype, dataspace, raw_value) =
+            parse_dtype_dataspace_value(r, data, datatype_size, dataspace_size, size_of_lengths, false)?;
 
-        let ds_start = r.position() as usize;
-        let ds_bytes = data.slice(ds_start..ds_start + dataspace_size);
-        let dataspace = DataspaceMessage::parse(&ds_bytes, size_of_lengths)?;
-        r.skip(dataspace_size as u64);
-
-        let raw_value = extract_raw_value(r, data, &dataspace, &dtype);
-
-        Ok(Self {
-            name,
-            dtype,
-            dataspace,
-            raw_value,
-        })
+        Ok(Self { name, dtype, dataspace, raw_value })
     }
 
     fn parse_v3(
@@ -370,7 +334,7 @@ impl AttributeMessage {
         _size_of_offsets: u8,
         size_of_lengths: u8,
     ) -> Result<Self> {
-        // v3: same as v2 but with creation order
+        // v3: same as v2 but with charset flag
         let flags = r.read_u8()?;
         let name_size = r.read_u16()? as usize;
         let datatype_size = r.read_u16()? as usize;
@@ -387,24 +351,10 @@ impl AttributeMessage {
             .trim_end_matches('\0')
             .to_string();
 
-        let dt_start = r.position() as usize;
-        let dt_bytes = data.slice(dt_start..dt_start + datatype_size);
-        let dtype = DataType::parse(&dt_bytes)?;
-        r.skip(datatype_size as u64);
+        let (dtype, dataspace, raw_value) =
+            parse_dtype_dataspace_value(r, data, datatype_size, dataspace_size, size_of_lengths, false)?;
 
-        let ds_start = r.position() as usize;
-        let ds_bytes = data.slice(ds_start..ds_start + dataspace_size);
-        let dataspace = DataspaceMessage::parse(&ds_bytes, size_of_lengths)?;
-        r.skip(dataspace_size as u64);
-
-        let raw_value = extract_raw_value(r, data, &dataspace, &dtype);
-
-        Ok(Self {
-            name,
-            dtype,
-            dataspace,
-            raw_value,
-        })
+        Ok(Self { name, dtype, dataspace, raw_value })
     }
 }
 
@@ -436,6 +386,51 @@ fn extract_raw_value(
     }
 }
 
+/// Parse the datatype, dataspace, and raw value from the current reader position.
+/// Used by all three attribute message versions. When `pad_to_8` is true (v1),
+/// each section is padded to an 8-byte boundary.
+fn parse_dtype_dataspace_value(
+    r: &mut HDF5Reader,
+    data: &Bytes,
+    datatype_size: usize,
+    dataspace_size: usize,
+    size_of_lengths: u8,
+    pad_to_8: bool,
+) -> Result<(DataType, DataspaceMessage, Bytes)> {
+    let dt_start = r.position() as usize;
+    let dt_bytes = data.slice(dt_start..dt_start + datatype_size);
+    let dtype = DataType::parse(&dt_bytes)?;
+    r.skip(datatype_size as u64);
+    if pad_to_8 {
+        r.skip_field_padding(datatype_size, 8);
+    }
+
+    let ds_start = r.position() as usize;
+    let ds_bytes = data.slice(ds_start..ds_start + dataspace_size);
+    let dataspace = DataspaceMessage::parse(&ds_bytes, size_of_lengths)?;
+    r.skip(dataspace_size as u64);
+    if pad_to_8 {
+        r.skip_field_padding(dataspace_size, 8);
+    }
+
+    let raw_value = extract_raw_value(r, data, &dataspace, &dtype);
+    Ok((dtype, dataspace, raw_value))
+}
+
+/// Decode a slice of raw bytes into a `Vec<$ty>`, interpreting each `$width`-byte
+/// chunk as either little-endian or big-endian.
+macro_rules! decode_numeric {
+    ($raw:expr, $n:expr, $is_le:expr, $width:expr, $ty:ty) => {{
+        $raw.chunks_exact($width)
+            .take($n)
+            .map(|c| {
+                let arr: [u8; $width] = c.try_into().unwrap();
+                if $is_le { <$ty>::from_le_bytes(arr) } else { <$ty>::from_be_bytes(arr) }
+            })
+            .collect::<Vec<$ty>>()
+    }};
+}
+
 /// Decode fixed-point (integer) raw bytes into an `AttributeValue`.
 fn decode_fixed_point(
     raw: &[u8],
@@ -446,98 +441,14 @@ fn decode_fixed_point(
 ) -> AttributeValue {
     let is_le = matches!(byte_order, ByteOrder::LittleEndian);
     match (size, signed) {
-        (1, true) => {
-            let vals: Vec<i8> = raw.iter().take(n).map(|&b| b as i8).collect();
-            AttributeValue::I8(vals)
-        }
-        (1, false) => {
-            let vals: Vec<u8> = raw.iter().take(n).copied().collect();
-            AttributeValue::U8(vals)
-        }
-        (2, true) => {
-            let vals: Vec<i16> = raw
-                .chunks_exact(2)
-                .take(n)
-                .map(|c| {
-                    if is_le {
-                        i16::from_le_bytes([c[0], c[1]])
-                    } else {
-                        i16::from_be_bytes([c[0], c[1]])
-                    }
-                })
-                .collect();
-            AttributeValue::I16(vals)
-        }
-        (2, false) => {
-            let vals: Vec<u16> = raw
-                .chunks_exact(2)
-                .take(n)
-                .map(|c| {
-                    if is_le {
-                        u16::from_le_bytes([c[0], c[1]])
-                    } else {
-                        u16::from_be_bytes([c[0], c[1]])
-                    }
-                })
-                .collect();
-            AttributeValue::U16(vals)
-        }
-        (4, true) => {
-            let vals: Vec<i32> = raw
-                .chunks_exact(4)
-                .take(n)
-                .map(|c| {
-                    if is_le {
-                        i32::from_le_bytes([c[0], c[1], c[2], c[3]])
-                    } else {
-                        i32::from_be_bytes([c[0], c[1], c[2], c[3]])
-                    }
-                })
-                .collect();
-            AttributeValue::I32(vals)
-        }
-        (4, false) => {
-            let vals: Vec<u32> = raw
-                .chunks_exact(4)
-                .take(n)
-                .map(|c| {
-                    if is_le {
-                        u32::from_le_bytes([c[0], c[1], c[2], c[3]])
-                    } else {
-                        u32::from_be_bytes([c[0], c[1], c[2], c[3]])
-                    }
-                })
-                .collect();
-            AttributeValue::U32(vals)
-        }
-        (8, true) => {
-            let vals: Vec<i64> = raw
-                .chunks_exact(8)
-                .take(n)
-                .map(|c| {
-                    if is_le {
-                        i64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])
-                    } else {
-                        i64::from_be_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])
-                    }
-                })
-                .collect();
-            AttributeValue::I64(vals)
-        }
-        (8, false) => {
-            let vals: Vec<u64> = raw
-                .chunks_exact(8)
-                .take(n)
-                .map(|c| {
-                    if is_le {
-                        u64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])
-                    } else {
-                        u64::from_be_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])
-                    }
-                })
-                .collect();
-            AttributeValue::U64(vals)
-        }
+        (1, true)  => AttributeValue::I8(raw.iter().take(n).map(|&b| b as i8).collect()),
+        (1, false) => AttributeValue::U8(raw.iter().take(n).copied().collect()),
+        (2, true)  => AttributeValue::I16(decode_numeric!(raw, n, is_le, 2, i16)),
+        (2, false) => AttributeValue::U16(decode_numeric!(raw, n, is_le, 2, u16)),
+        (4, true)  => AttributeValue::I32(decode_numeric!(raw, n, is_le, 4, i32)),
+        (4, false) => AttributeValue::U32(decode_numeric!(raw, n, is_le, 4, u32)),
+        (8, true)  => AttributeValue::I64(decode_numeric!(raw, n, is_le, 8, i64)),
+        (8, false) => AttributeValue::U64(decode_numeric!(raw, n, is_le, 8, u64)),
         _ => AttributeValue::Raw(raw.to_vec()),
     }
 }
@@ -551,34 +462,8 @@ fn decode_floating_point(
 ) -> AttributeValue {
     let is_le = matches!(byte_order, ByteOrder::LittleEndian);
     match size {
-        4 => {
-            let vals: Vec<f32> = raw
-                .chunks_exact(4)
-                .take(n)
-                .map(|c| {
-                    if is_le {
-                        f32::from_le_bytes([c[0], c[1], c[2], c[3]])
-                    } else {
-                        f32::from_be_bytes([c[0], c[1], c[2], c[3]])
-                    }
-                })
-                .collect();
-            AttributeValue::F32(vals)
-        }
-        8 => {
-            let vals: Vec<f64> = raw
-                .chunks_exact(8)
-                .take(n)
-                .map(|c| {
-                    if is_le {
-                        f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])
-                    } else {
-                        f64::from_be_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])
-                    }
-                })
-                .collect();
-            AttributeValue::F64(vals)
-        }
+        4 => AttributeValue::F32(decode_numeric!(raw, n, is_le, 4, f32)),
+        8 => AttributeValue::F64(decode_numeric!(raw, n, is_le, 8, f64)),
         _ => AttributeValue::Raw(raw.to_vec()),
     }
 }

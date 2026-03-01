@@ -311,8 +311,7 @@ fn parse_continuation_chunk(
             r.skip(3); // reserved
 
             if msg_size == 0 && msg_type == msg_types::NIL {
-                let pad = (8 - (r.position() % 8)) % 8;
-                r.skip(pad);
+                r.skip_to_alignment(8);
                 continue;
             }
 
@@ -324,8 +323,7 @@ fn parse_continuation_chunk(
                 Bytes::new()
             };
 
-            let pad = (8 - (r.position() % 8)) % 8;
-            r.skip(pad);
+            r.skip_to_alignment(8);
 
             messages.push(crate::object_header::HeaderMessage {
                 msg_type,

@@ -147,8 +147,7 @@ impl ObjectHeader {
             r.skip(msg_size as u64);
 
             // Align to 8-byte boundary
-            let pad = (8 - (r.position() % 8)) % 8;
-            r.skip(pad);
+            r.skip_to_alignment(8);
 
             messages.push(HeaderMessage {
                 msg_type,

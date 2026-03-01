@@ -103,30 +103,34 @@ impl PyHDF5Group {
 }
 
 /// Convert an `AttributeValue` to a Python object.
+///
+/// Scalar values (single-element vectors) are unwrapped to Python scalars;
+/// multi-element vectors become Python lists.
 pub(crate) fn attribute_value_to_py(py: Python<'_>, value: async_hdf5::AttributeValue) -> Py<PyAny> {
     use async_hdf5::AttributeValue;
 
+    /// Convert a numeric Vec: scalar (len==1) → Python scalar, otherwise → Python list.
+    macro_rules! to_py {
+        ($v:expr) => {
+            if $v.len() == 1 {
+                $v[0].into_pyobject(py).unwrap().into_any().unbind()
+            } else {
+                $v.into_pyobject(py).unwrap().into_any().unbind()
+            }
+        };
+    }
+
     match value {
-        AttributeValue::I8(v) if v.len() == 1 => v[0].into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::I16(v) if v.len() == 1 => v[0].into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::I32(v) if v.len() == 1 => v[0].into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::I64(v) if v.len() == 1 => v[0].into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::U8(v) if v.len() == 1 => v[0].into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::U16(v) if v.len() == 1 => v[0].into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::U32(v) if v.len() == 1 => v[0].into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::U64(v) if v.len() == 1 => v[0].into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::F32(v) if v.len() == 1 => v[0].into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::F64(v) if v.len() == 1 => v[0].into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::I8(v) => v.into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::I16(v) => v.into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::I32(v) => v.into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::I64(v) => v.into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::U8(v) => v.into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::U16(v) => v.into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::U32(v) => v.into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::U64(v) => v.into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::F32(v) => v.into_pyobject(py).unwrap().into_any().unbind(),
-        AttributeValue::F64(v) => v.into_pyobject(py).unwrap().into_any().unbind(),
+        AttributeValue::I8(v)  => to_py!(v),
+        AttributeValue::I16(v) => to_py!(v),
+        AttributeValue::I32(v) => to_py!(v),
+        AttributeValue::I64(v) => to_py!(v),
+        AttributeValue::U8(v)  => to_py!(v),
+        AttributeValue::U16(v) => to_py!(v),
+        AttributeValue::U32(v) => to_py!(v),
+        AttributeValue::U64(v) => to_py!(v),
+        AttributeValue::F32(v) => to_py!(v),
+        AttributeValue::F64(v) => to_py!(v),
         AttributeValue::String(s) => s.into_pyobject(py).unwrap().into_any().unbind(),
         AttributeValue::Raw(v) => v.into_pyobject(py).unwrap().into_any().unbind(),
     }

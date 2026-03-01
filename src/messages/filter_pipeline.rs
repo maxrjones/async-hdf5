@@ -90,9 +90,7 @@ impl FilterPipeline {
 
             let name = if name_length > 0 {
                 let name_bytes = r.read_bytes(name_length)?;
-                // Pad to 8-byte boundary
-                let pad = (8 - (name_length % 8)) % 8;
-                r.skip(pad as u64);
+                r.skip_field_padding(name_length, 8);
                 Some(
                     String::from_utf8_lossy(&name_bytes)
                         .trim_end_matches('\0')

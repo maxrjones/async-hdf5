@@ -180,6 +180,32 @@ impl HDF5Reader {
         self.cursor.get_ref()
     }
 
+    /// Read a null-terminated string, advancing past the terminator.
+    pub fn read_null_terminated_string(&mut self) -> Result<String> {
+        let mut buf = Vec::new();
+        loop {
+            let b = self.read_u8()?;
+            if b == 0 {
+                break;
+            }
+            buf.push(b);
+        }
+        Ok(String::from_utf8_lossy(&buf).to_string())
+    }
+
+    /// Skip forward to align the current position to an `alignment`-byte boundary.
+    pub fn skip_to_alignment(&mut self, alignment: u64) {
+        let pad = (alignment - (self.position() % alignment)) % alignment;
+        self.skip(pad);
+    }
+
+    /// Skip forward to align a field of `field_size` bytes to an `alignment`-byte boundary.
+    /// Use this when the padding depends on the field size rather than the reader position.
+    pub fn skip_field_padding(&mut self, field_size: usize, alignment: usize) {
+        let pad = (alignment - (field_size % alignment)) % alignment;
+        self.skip(pad as u64);
+    }
+
     /// Slice out bytes from the current position without advancing.
     pub fn slice_from_position(&self, len: usize) -> Result<Bytes> {
         let pos = self.cursor.position() as usize;
