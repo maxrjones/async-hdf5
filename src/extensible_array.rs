@@ -289,6 +289,7 @@ pub(crate) async fn read_extensible_array_entries(
 }
 
 /// Read an Extensible Array Super Block (EASB) and collect its data block entries.
+#[allow(clippy::too_many_arguments)]
 async fn collect_super_block_entries(
     reader: &Arc<dyn AsyncFileReader>,
     address: u64,
@@ -385,6 +386,7 @@ async fn collect_super_block_entries(
 }
 
 /// Read an Extensible Array Data Block (EADB) and collect allocated entries.
+#[allow(clippy::too_many_arguments)]
 async fn collect_data_block_entries(
     reader: &Arc<dyn AsyncFileReader>,
     address: u64,

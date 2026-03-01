@@ -423,10 +423,7 @@ impl HDF5Dataset {
         let uncompressed_chunk_size =
             chunk_shape.iter().product::<u64>() * self.dtype.size() as u64;
 
-        // Determine layout version from the data layout message
-        // We need to know if it's v4 or v5 for filtered entry encoding.
-        // The header version was parsed earlier; use flags bit 1 for filtered detection.
-        let layout_version = if layout_flags & 0x02 != 0 { 4u8 } else { 4u8 };
+        let layout_version = 4u8;
 
         // Read all entries from the FADB
         let entries = fixed_array::read_fixed_array_entries(
@@ -500,7 +497,7 @@ impl HDF5Dataset {
         let uncompressed_chunk_size =
             chunk_shape.iter().product::<u64>() * self.dtype.size() as u64;
 
-        let layout_version = if layout_flags & 0x02 != 0 { 4u8 } else { 4u8 };
+        let layout_version = 4u8;
 
         // Read all entries from the EA structure
         let entries = extensible_array::read_extensible_array_entries(

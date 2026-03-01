@@ -153,7 +153,7 @@ async def test_xfail_error_message(filepath: str):
             open_hdf5(path=filepath, store=store),
             timeout=OPEN_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pytest.fail(
             f"open_hdf5() timed out after {OPEN_TIMEOUT_SECONDS}s — "
             f"possible hang on {filepath}"
@@ -171,4 +171,6 @@ async def test_xfail_error_message(filepath: str):
         )
         return
 
-    pytest.skip("File opened successfully — xfail is for data comparison, not error messaging")
+    pytest.skip(
+        "File opened successfully — xfail is for data comparison, not error messaging"
+    )

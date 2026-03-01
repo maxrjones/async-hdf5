@@ -1,5 +1,6 @@
 import warnings
 
+
 def on_startup(**kwargs):
     warnings.filterwarnings(
         "ignore",

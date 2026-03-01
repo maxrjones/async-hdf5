@@ -35,14 +35,16 @@ impl DataspaceMessage {
         let dataspace_type = match version {
             1 => {
                 r.skip(5); // 1 reserved + 4 reserved
-                if rank == 0 { 0 } else { 1 }
+                if rank == 0 {
+                    0
+                } else {
+                    1
+                }
             }
-            2 => {
-                r.read_u8()?
-            }
+            2 => r.read_u8()?,
             _ => {
                 // Best-effort: try to continue
-                
+
                 r.read_u8()?
             }
         };

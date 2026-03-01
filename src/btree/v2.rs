@@ -119,6 +119,7 @@ pub async fn collect_all_records(
 }
 
 /// Recursively collect records from a B-tree v2 node.
+#[allow(clippy::too_many_arguments)]
 async fn collect_records_from_node(
     reader: &Arc<dyn AsyncFileReader>,
     node_address: u64,

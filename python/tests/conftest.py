@@ -276,10 +276,12 @@ async def h5py_comparison(filepath: str, group: str | None = None):
                 actual = await asyncio.wait_for(
                     asyncio.to_thread(lambda v=varname: ds[v].values), timeout=10
                 )
-            except TimeoutError:
-                raise AssertionError(
-                    f"{varname}: data read timed out after 10s (likely broken chunk index or byte ranges)"
+            except TimeoutError as err:
+                msg = (
+                    f"{varname}: data read timed out after 10s"
+                    " (likely broken chunk index or byte ranges)"
                 )
+                raise AssertionError(msg) from err
             expected = h5_ds[()]
             np.testing.assert_allclose(
                 actual,

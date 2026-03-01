@@ -81,7 +81,7 @@ jobs:
 
       - name: uv sync
         working-directory: python
-        run: uv sync --no-install-package async-hdf5
+        run: uv sync --group dev --group test --no-install-package async-hdf5
 
       - name: maturin venv Build
         working-directory: python

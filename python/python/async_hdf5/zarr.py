@@ -568,9 +568,7 @@ class HDF5Store(Store):
                 if info.shape == ():
                     yield "c"
                 else:
-                    async for key in self._iter_chunk_keys_for(
-                        prefix, info, separator
-                    ):
+                    async for key in self._iter_chunk_keys_for(prefix, info, separator):
                         yield f"c{separator}{key}"
 
     async def _iter_chunk_keys_for(
