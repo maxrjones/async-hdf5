@@ -1,0 +1,92 @@
+name: Test Python
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  lint-python:
+    name: Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+
+      - name: Install a specific version of uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      # Ensure docs build without warnings
+      - name: Check docs
+        if: "${{ matrix.python-version == 3.11 }}"
+        run: uv run --group docs mkdocs build --strict
+
+      # Use ruff-action so we get annotations in the Github UI
+      - uses: astral-sh/ruff-action@v3
+        with:
+          src: "python"
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: "cargo check"
+        run: cargo check --all --all-features
+
+      - name: "cargo test"
+        run: |
+          cargo test --all
+          cargo test --all --all-features
+
+  pytest:
+    name: Pytest
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install a specific version of uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: uv sync
+        working-directory: python
+        run: uv sync --no-install-package async-hdf5
+
+      - name: maturin venv Build
+        working-directory: python
+        run: uv run --no-project maturin develop
+
+      - name: Run pytest
+        working-directory: python
+        run: uv run --no-project pytest --verbose

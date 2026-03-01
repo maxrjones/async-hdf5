@@ -33,6 +33,9 @@ watch:
   - docs/
   - README.md
 
+hooks:
+  - docs/hooks.py
+
 theme:
   language: en
   name: material

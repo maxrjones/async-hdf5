@@ -10,7 +10,7 @@
 > - **No fuzz testing** — the binary parser has not been fuzz-tested against adversarial inputs. While known panics have been fixed, corrupt files may trigger unexpected errors.
 > - **Sparse array performance** — fixed array chunk indexing reads the entire dense index into memory, which can be expensive for very large, mostly-empty datasets.
 
-Python bindings for the [`async-hdf5`](../README.md) Rust crate. Read HDF5 file metadata asynchronously from local disk or cloud storage (S3, GCS, Azure) without libhdf5.
+Python bindings for the `async-hdf5` Rust crate. Read HDF5 file metadata asynchronously from local disk or cloud storage (S3, GCS, Azure) without libhdf5.
 
 ## Install
 
