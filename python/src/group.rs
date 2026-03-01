@@ -29,9 +29,10 @@ impl PyHDF5Group {
     fn children<'py>(&'py self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let group = self.inner.clone();
         future_into_py(py, async move {
-            let children = group.children().await.map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-            })?;
+            let children = group
+                .children()
+                .await
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             let names: Vec<String> = children.into_iter().map(|c| c.name).collect();
             Ok(names)
         })
@@ -40,9 +41,10 @@ impl PyHDF5Group {
     fn group<'py>(&'py self, py: Python<'py>, name: String) -> PyResult<Bound<'py, PyAny>> {
         let group = self.inner.clone();
         future_into_py(py, async move {
-            let child = group.group(&name).await.map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-            })?;
+            let child = group
+                .group(&name)
+                .await
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Ok(PyHDF5Group::new(child))
         })
     }
@@ -50,9 +52,10 @@ impl PyHDF5Group {
     fn dataset<'py>(&'py self, py: Python<'py>, name: String) -> PyResult<Bound<'py, PyAny>> {
         let group = self.inner.clone();
         future_into_py(py, async move {
-            let ds = group.dataset(&name).await.map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-            })?;
+            let ds = group
+                .dataset(&name)
+                .await
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Ok(PyHDF5Dataset::new(ds))
         })
     }
@@ -60,9 +63,10 @@ impl PyHDF5Group {
     fn navigate<'py>(&'py self, py: Python<'py>, path: String) -> PyResult<Bound<'py, PyAny>> {
         let group = self.inner.clone();
         future_into_py(py, async move {
-            let child = group.navigate(&path).await.map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-            })?;
+            let child = group
+                .navigate(&path)
+                .await
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Ok(PyHDF5Group::new(child))
         })
     }
@@ -70,9 +74,10 @@ impl PyHDF5Group {
     fn group_names<'py>(&'py self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let group = self.inner.clone();
         future_into_py(py, async move {
-            let names = group.group_names().await.map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-            })?;
+            let names = group
+                .group_names()
+                .await
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Ok(names)
         })
     }
@@ -80,9 +85,10 @@ impl PyHDF5Group {
     fn dataset_names<'py>(&'py self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let group = self.inner.clone();
         future_into_py(py, async move {
-            let names = group.dataset_names().await.map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-            })?;
+            let names = group
+                .dataset_names()
+                .await
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Ok(names)
         })
     }
@@ -106,7 +112,10 @@ impl PyHDF5Group {
 ///
 /// Scalar values (single-element vectors) are unwrapped to Python scalars;
 /// multi-element vectors become Python lists.
-pub(crate) fn attribute_value_to_py(py: Python<'_>, value: async_hdf5::AttributeValue) -> Py<PyAny> {
+pub(crate) fn attribute_value_to_py(
+    py: Python<'_>,
+    value: async_hdf5::AttributeValue,
+) -> Py<PyAny> {
     use async_hdf5::AttributeValue;
 
     /// Convert a numeric Vec: scalar (len==1) → Python scalar, otherwise → Python list.
@@ -121,11 +130,11 @@ pub(crate) fn attribute_value_to_py(py: Python<'_>, value: async_hdf5::Attribute
     }
 
     match value {
-        AttributeValue::I8(v)  => to_py!(v),
+        AttributeValue::I8(v) => to_py!(v),
         AttributeValue::I16(v) => to_py!(v),
         AttributeValue::I32(v) => to_py!(v),
         AttributeValue::I64(v) => to_py!(v),
-        AttributeValue::U8(v)  => to_py!(v),
+        AttributeValue::U8(v) => to_py!(v),
         AttributeValue::U16(v) => to_py!(v),
         AttributeValue::U32(v) => to_py!(v),
         AttributeValue::U64(v) => to_py!(v),

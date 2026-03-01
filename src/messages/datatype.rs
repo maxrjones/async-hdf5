@@ -162,7 +162,10 @@ impl DataType {
             DataType::Compound { size, .. } => *size,
             DataType::Enum { size, .. } => *size,
             DataType::VarLen { .. } => 16, // HDF5 vlen: {size, pointer}
-            DataType::Array { base_type, dimensions } => {
+            DataType::Array {
+                base_type,
+                dimensions,
+            } => {
                 let dim_product = dimensions
                     .iter()
                     .copied()
@@ -301,18 +304,15 @@ impl DataType {
     fn parse_opaque(r: &mut HDF5Reader, class_bits: u32, size: u32) -> Result<Self> {
         let tag_len = (class_bits & 0xFF) as usize;
         let tag_bytes = r.read_bytes(tag_len)?;
-        let tag = String::from_utf8_lossy(&tag_bytes).trim_end_matches('\0').to_string();
+        let tag = String::from_utf8_lossy(&tag_bytes)
+            .trim_end_matches('\0')
+            .to_string();
         r.skip_field_padding(tag_len, 8);
 
         Ok(DataType::Opaque { size, tag })
     }
 
-    fn parse_compound(
-        r: &mut HDF5Reader,
-        class_bits: u32,
-        size: u32,
-        version: u8,
-    ) -> Result<Self> {
+    fn parse_compound(r: &mut HDF5Reader, class_bits: u32, size: u32, version: u8) -> Result<Self> {
         let num_members = (class_bits & 0xFFFF) as usize;
         let mut fields = Vec::with_capacity(num_members);
 

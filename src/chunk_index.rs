@@ -60,7 +60,7 @@ impl ChunkIndex {
         self.dataset_shape
             .iter()
             .zip(self.chunk_shape.iter())
-            .map(|(&ds, &cs)| (ds + cs - 1) / cs)
+            .map(|(&ds, &cs)| ds.div_ceil(cs))
             .collect()
     }
 

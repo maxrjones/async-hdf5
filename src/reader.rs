@@ -106,11 +106,8 @@ impl AsyncFileReader for ObjectReader {
     async fn file_size(&self) -> Result<Option<u64>> {
         use object_store::ObjectStoreExt;
 
-        let meta: object_store::ObjectMeta = self
-            .store
-            .head(&self.path)
-            .await
-            .map_err(HDF5Error::from)?;
+        let meta: object_store::ObjectMeta =
+            self.store.head(&self.path).await.map_err(HDF5Error::from)?;
         Ok(Some(meta.size as u64))
     }
 }
@@ -139,6 +136,7 @@ impl<T: tokio::io::AsyncRead + tokio::io::AsyncSeek + Unpin + Send + Debug + 'st
 {
     async fn get_bytes(&self, range: Range<u64>) -> Result<Bytes> {
         use std::io::SeekFrom;
+
         use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
         let mut file = self.0.lock().await;
@@ -283,8 +281,8 @@ impl<F: AsyncFileReader + Send + Sync> AsyncFileReader for BlockCache<F> {
         while offset < range.end {
             let block = self.ensure_block(block_offset).await?;
             let local_start = (offset - block_offset) as usize;
-            let bytes_from_block = ((block_offset + self.block_size) - offset)
-                .min(range.end - offset) as usize;
+            let bytes_from_block =
+                ((block_offset + self.block_size) - offset).min(range.end - offset) as usize;
             let actual_end = (local_start + bytes_from_block).min(block.len());
             if local_start >= block.len() {
                 break; // EOF
@@ -322,7 +320,7 @@ impl<F: AsyncFileReader> BlockCache<F> {
     /// can coalesce and parallelize the fetches.
     pub async fn pre_warm(&self, file_size: u64, max_bytes: u64) -> Result<()> {
         let warm_end = file_size.min(max_bytes);
-        let num_blocks = (warm_end + self.block_size - 1) / self.block_size;
+        let num_blocks = warm_end.div_ceil(self.block_size);
 
         // Collect ranges for blocks not already cached.
         let mut ranges: Vec<Range<u64>> = Vec::new();

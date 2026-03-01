@@ -195,11 +195,8 @@ pub(crate) async fn read_object_header(
         // Check new messages for further continuations before adding them
         for msg in &new_messages {
             if msg.msg_type == crate::object_header::msg_types::HEADER_CONTINUATION {
-                let mut r = HDF5Reader::with_sizes(
-                    msg.data.clone(),
-                    size_of_offsets,
-                    size_of_lengths,
-                );
+                let mut r =
+                    HDF5Reader::with_sizes(msg.data.clone(), size_of_offsets, size_of_lengths);
                 let address = r.read_offset()?;
                 let length = r.read_length()?;
                 pending.push((address, length));
@@ -284,7 +281,7 @@ fn parse_continuation_chunk(
 
     if header_version == 2 {
         // v2 continuation: starts with OCHK signature
-        r.read_signature(&[b'O', b'C', b'H', b'K'])?;
+        r.read_signature(b"OCHK")?;
 
         let end = data.len() as u64 - 4; // minus checksum
         while r.position() < end {

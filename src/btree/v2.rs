@@ -39,8 +39,7 @@ impl BTreeV2Header {
     ) -> Result<Self> {
         // Header: 4 (sig) + 1 (ver) + 1 (type) + 4 (node_size) + 2 (rec_size) + 2 (depth)
         //       + 1 (split) + 1 (merge) + O (root_addr) + 2 (num_root_rec) + L (total) + 4 (checksum)
-        let header_size =
-            18 + size_of_offsets as u64 + size_of_lengths as u64 + 4;
+        let header_size = 18 + size_of_offsets as u64 + size_of_lengths as u64 + 4;
         let data = reader.get_bytes(address..address + header_size).await?;
         let mut r = HDF5Reader::with_sizes(data, size_of_offsets, size_of_lengths);
 
@@ -98,7 +97,9 @@ pub async fn collect_all_records(
 ) -> Result<Vec<Bytes>> {
     let mut records = Vec::with_capacity(header.total_records as usize);
 
-    if header.total_records == 0 || HDF5Reader::is_undef_addr(header.root_node_address, size_of_offsets) {
+    if header.total_records == 0
+        || HDF5Reader::is_undef_addr(header.root_node_address, size_of_offsets)
+    {
         return Ok(records);
     }
 
@@ -351,7 +352,7 @@ fn bytes_needed(value: u64) -> usize {
         return 1;
     }
     let bits = 64 - value.leading_zeros();
-    ((bits + 7) / 8) as usize
+    bits.div_ceil(8) as usize
 }
 
 /// Read a variable-width unsigned integer from the HDF5Reader.

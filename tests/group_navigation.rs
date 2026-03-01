@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use async_hdf5::HDF5File;
 use async_hdf5::reader::TokioReader;
+use async_hdf5::HDF5File;
 
 fn fixture_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

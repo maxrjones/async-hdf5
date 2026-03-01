@@ -165,7 +165,7 @@ impl FractalHeap {
         // Managed ID layout: [type_byte][offset...][length...]
         // Offset field size = ceil(max_heap_size / 8) bytes
         // Length field size = remaining bytes in the ID
-        let offset_size = ((self.max_heap_size as usize) + 7) / 8;
+        let offset_size = (self.max_heap_size as usize).div_ceil(8);
         let length_size = self.id_length as usize - 1 - offset_size;
 
         if heap_id.len() < 1 + offset_size + length_size {
@@ -193,13 +193,17 @@ impl FractalHeap {
             return self
                 .reader
                 .get_bytes(file_offset..file_offset + length)
-                .await
-                .map_err(Into::into);
+                .await;
         }
 
         // Root block is an indirect block — traverse the doubling table.
-        self.read_from_indirect_block(self.root_block_address, self.current_root_rows, offset, length)
-            .await
+        self.read_from_indirect_block(
+            self.root_block_address,
+            self.current_root_rows,
+            offset,
+            length,
+        )
+        .await
     }
 
     /// Read from an indirect block by navigating down to the correct direct block.
@@ -218,11 +222,10 @@ impl FractalHeap {
         let nindirect_children = nindirect_rows as usize * self.table_width as usize;
 
         // Calculate the block offset field size
-        let block_offset_size = ((self.max_heap_size as usize) + 7) / 8;
+        let block_offset_size = (self.max_heap_size as usize).div_ceil(8);
 
         // Indirect block header: FHIB(4) + version(1) + heap_header_addr(O) + block_offset(variable)
-        let iblock_header_size =
-            4 + 1 + self.size_of_offsets as usize + block_offset_size;
+        let iblock_header_size = 4 + 1 + self.size_of_offsets as usize + block_offset_size;
 
         // Each direct child entry: address(O) [+ filtered_size(L) + filter_mask(4) if filtered]
         let direct_entry_size = if self.io_filters_length > 0 {
@@ -274,8 +277,7 @@ impl FractalHeap {
                     return self
                         .reader
                         .get_bytes(file_offset..file_offset + length)
-                        .await
-                        .map_err(Into::into);
+                        .await;
                 }
                 cumulative_offset += block_size;
             }

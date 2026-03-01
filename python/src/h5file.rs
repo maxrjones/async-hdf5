@@ -18,8 +18,7 @@ async fn open_file(
     block_size: u64,
     pre_warm_size: Option<u64>,
 ) -> PyAsyncHDF5Result<PyHDF5File> {
-    let file =
-        async_hdf5::HDF5File::open_with_options(reader, block_size, pre_warm_size).await?;
+    let file = async_hdf5::HDF5File::open_with_options(reader, block_size, pre_warm_size).await?;
     Ok(PyHDF5File {
         inner: Arc::new(file),
     })
@@ -46,9 +45,10 @@ impl PyHDF5File {
     fn root_group<'py>(&'py self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let file = self.inner.clone();
         future_into_py(py, async move {
-            let group = file.root_group().await.map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-            })?;
+            let group = file
+                .root_group()
+                .await
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Ok(PyHDF5Group::new(group))
         })
     }

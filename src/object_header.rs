@@ -262,7 +262,10 @@ impl ObjectHeader {
 
     /// Find all messages of a given type.
     pub fn find_messages(&self, msg_type: u16) -> Vec<&HeaderMessage> {
-        self.messages.iter().filter(|m| m.msg_type == msg_type).collect()
+        self.messages
+            .iter()
+            .filter(|m| m.msg_type == msg_type)
+            .collect()
     }
 
     /// Check if a continuation message is present (meaning we'd need to

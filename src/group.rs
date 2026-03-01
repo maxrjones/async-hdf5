@@ -2,12 +2,10 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 
-use crate::btree;
 use crate::dataset::HDF5Dataset;
 use crate::endian::HDF5Reader;
 use crate::error::{HDF5Error, Result};
 use crate::file::read_object_header;
-use crate::heap;
 use crate::messages::attribute::{Attribute, AttributeMessage};
 use crate::messages::link::{LinkMessage, LinkType};
 use crate::messages::link_info::LinkInfoMessage;
@@ -15,6 +13,7 @@ use crate::messages::symbol_table::SymbolTableMessage;
 use crate::object_header::{msg_types, ObjectHeader};
 use crate::reader::AsyncFileReader;
 use crate::superblock::Superblock;
+use crate::{btree, heap};
 
 /// A named link to a child object (group or dataset).
 #[derive(Debug, Clone)]
@@ -353,8 +352,7 @@ impl HDF5Group {
         .await?;
 
         // Parse link records
-        let link_records =
-            btree::v2::parse_link_records(&raw_records, btree_header.record_type)?;
+        let link_records = btree::v2::parse_link_records(&raw_records, btree_header.record_type)?;
 
         // Resolve each link record through the fractal heap
         let mut children = Vec::with_capacity(link_records.len());

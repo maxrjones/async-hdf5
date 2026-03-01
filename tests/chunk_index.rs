@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use async_hdf5::HDF5File;
 use async_hdf5::reader::TokioReader;
+use async_hdf5::HDF5File;
 
 fn fixture_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -107,7 +107,11 @@ async fn test_v2_chunked_2d_chunk_index() {
         assert!(chunk.byte_offset > 0);
         assert!(chunk.byte_length > 0);
         // Compressed, so byte_length < uncompressed (4*4*4 = 64 bytes)
-        assert!(chunk.byte_length < 64, "expected compressed chunk < 64 bytes, got {}", chunk.byte_length);
+        assert!(
+            chunk.byte_length < 64,
+            "expected compressed chunk < 64 bytes, got {}",
+            chunk.byte_length
+        );
     }
 }
 

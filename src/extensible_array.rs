@@ -101,13 +101,13 @@ impl ExtensibleArrayHeader {
         let log2_min = log2_of_power_of_2(data_blk_min_elmts as u32);
         let nsblks = 1 + (max_nelmts_bits as usize - log2_min as usize);
         let dblk_page_nelmts = 1usize << max_dblk_page_nelmts_bits;
-        let arr_off_size = (max_nelmts_bits + 7) / 8;
+        let arr_off_size = max_nelmts_bits.div_ceil(8);
 
         let mut sblk_info = Vec::with_capacity(nsblks);
         let mut start_idx = 0u64;
         for s in 0..nsblks {
             let ndblks = 1usize << (s / 2);
-            let dblk_nelmts = (1usize << ((s + 1) / 2)) * data_blk_min_elmts as usize;
+            let dblk_nelmts = (1usize << s.div_ceil(2)) * data_blk_min_elmts as usize;
             sblk_info.push(SBlockInfo {
                 ndblks,
                 dblk_nelmts,
@@ -181,9 +181,7 @@ pub(crate) async fn read_extensible_array_entries(
         + 4; // checksum
 
     let data = reader
-        .get_bytes(
-            header.index_block_address..header.index_block_address + iblock_size as u64,
-        )
+        .get_bytes(header.index_block_address..header.index_block_address + iblock_size as u64)
         .await?;
     let mut r = HDF5Reader::with_sizes(data, size_of_offsets, size_of_lengths);
 
@@ -312,7 +310,7 @@ async fn collect_super_block_entries(
         0
     };
     let dblk_page_init_size = if dblk_npages > 0 {
-        (dblk_npages + 7) / 8
+        dblk_npages.div_ceil(8)
     } else {
         0
     };
@@ -416,8 +414,7 @@ async fn collect_data_block_entries(
 
     if !is_paged {
         // Non-paged: elements are inline after prefix
-        let total_size =
-            prefix_size + nelmts * header.element_size as usize + 4; // +4 checksum
+        let total_size = prefix_size + nelmts * header.element_size as usize + 4; // +4 checksum
         let data = reader
             .get_bytes(address..address + total_size as u64)
             .await?;
@@ -471,8 +468,7 @@ async fn collect_data_block_entries(
 
         // Pages follow after the data block (prefix + checksum)
         let npages = nelmts / header.dblk_page_nelmts;
-        let page_size =
-            header.dblk_page_nelmts * header.element_size as usize + 4; // +4 checksum per page
+        let page_size = header.dblk_page_nelmts * header.element_size as usize + 4; // +4 checksum per page
         let pages_start = address + prefix_total as u64;
 
         for page_idx in 0..npages {

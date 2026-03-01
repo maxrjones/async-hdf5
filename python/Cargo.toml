@@ -12,6 +12,7 @@ name = "_async_hdf5"
 crate-type = ["cdylib"]
 
 [features]
+abi3-py311 = ["pyo3/abi3-py311"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]

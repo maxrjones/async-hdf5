@@ -4,12 +4,9 @@ use std::sync::Arc;
 use bytes::Bytes;
 use tokio::sync::OnceCell;
 
-use crate::btree;
 use crate::chunk_index::{ChunkIndex, ChunkLocation};
 use crate::endian::HDF5Reader;
 use crate::error::{HDF5Error, Result};
-use crate::extensible_array;
-use crate::fixed_array;
 use crate::group::attributes_from_header;
 use crate::messages::attribute::Attribute;
 use crate::messages::data_layout::{ChunkIndexParams, ChunkIndexType, StorageLayout};
@@ -20,6 +17,7 @@ use crate::messages::filter_pipeline::FilterPipeline;
 use crate::object_header::{msg_types, ObjectHeader};
 use crate::reader::AsyncFileReader;
 use crate::superblock::Superblock;
+use crate::{btree, extensible_array, fixed_array};
 
 /// An HDF5 dataset — a typed, shaped, chunked (or contiguous) array of data.
 ///
@@ -229,35 +227,21 @@ impl HDF5Dataset {
 
                 match indexing_type {
                     ChunkIndexType::BTreeV1 => {
-                        self.chunk_index_btree_v1(*index_address, chunk_shape)
-                            .await
+                        self.chunk_index_btree_v1(*index_address, chunk_shape).await
                     }
                     ChunkIndexType::BTreeV2 => {
-                        self.chunk_index_btree_v2(*index_address, chunk_shape)
-                            .await
+                        self.chunk_index_btree_v2(*index_address, chunk_shape).await
                     }
                     ChunkIndexType::SingleChunk => {
-                        self.chunk_index_single_chunk(
-                            *index_address,
-                            chunk_shape,
-                            index_params,
-                        )
+                        self.chunk_index_single_chunk(*index_address, chunk_shape, index_params)
                     }
                     ChunkIndexType::FixedArray => {
-                        self.chunk_index_fixed_array(
-                            *index_address,
-                            chunk_shape,
-                            *flags,
-                        )
-                        .await
+                        self.chunk_index_fixed_array(*index_address, chunk_shape, *flags)
+                            .await
                     }
                     ChunkIndexType::ExtensibleArray => {
-                        self.chunk_index_extensible_array(
-                            *index_address,
-                            chunk_shape,
-                            *flags,
-                        )
-                        .await
+                        self.chunk_index_extensible_array(*index_address, chunk_shape, *flags)
+                            .await
                     }
                     other => Err(HDF5Error::General(format!(
                         "chunk indexing type {other:?} not yet supported"
@@ -446,7 +430,7 @@ impl HDF5Dataset {
             .shape
             .iter()
             .zip(chunk_shape.iter())
-            .map(|(&ds, &cs)| (ds + cs - 1) / cs)
+            .map(|(&ds, &cs)| ds.div_ceil(cs))
             .collect();
 
         let mut locations = Vec::new();
@@ -519,7 +503,7 @@ impl HDF5Dataset {
             .shape
             .iter()
             .zip(chunk_shape.iter())
-            .map(|(&ds, &cs)| (ds + cs - 1) / cs)
+            .map(|(&ds, &cs)| ds.div_ceil(cs))
             .collect();
 
         let mut locations = Vec::with_capacity(entries.len());
@@ -553,11 +537,8 @@ impl HDF5Dataset {
     ///
     /// Returns one entry per input index, in the same order.  Chunks that
     /// are not present in the index (unallocated) are returned as `None`.
-    pub async fn batch_get_chunks(
-        &self,
-        chunk_indices: &[Vec<u64>],
-    ) -> Result<Vec<Option<Bytes>>> {
-        let index = self.chunk_index().await?;  // cached after first call
+    pub async fn batch_get_chunks(&self, chunk_indices: &[Vec<u64>]) -> Result<Vec<Option<Bytes>>> {
+        let index = self.chunk_index().await?; // cached after first call
 
         // Collect byte ranges for all requested chunks
         let mut ranges: Vec<Range<u64>> = Vec::new();
@@ -595,10 +576,7 @@ impl HDF5Dataset {
     /// Unlike `batch_get_chunks`, this takes pre-resolved `(offset, length)`
     /// pairs — no chunk index lookup is performed.  Use this when the caller
     /// has already resolved the chunk index and wants to avoid re-parsing.
-    pub async fn batch_fetch_ranges(
-        &self,
-        ranges: &[(u64, u64)],
-    ) -> Result<Vec<Bytes>> {
+    pub async fn batch_fetch_ranges(&self, ranges: &[(u64, u64)]) -> Result<Vec<Bytes>> {
         let byte_ranges: Vec<Range<u64>> = ranges
             .iter()
             .map(|&(offset, length)| offset..offset + length)

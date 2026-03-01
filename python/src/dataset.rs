@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use async_hdf5::messages::datatype::{ByteOrder, DataType};
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
-
-use async_hdf5::messages::datatype::{ByteOrder, DataType};
 
 use crate::chunk_index::PyChunkIndex;
 use crate::group::attribute_value_to_py;
@@ -45,7 +44,11 @@ fn datatype_to_numpy_str(dt: &DataType) -> Result<String, String> {
             byte_order,
             ..
         } => {
-            let e = if *size == 1 { "|" } else { endian_char(byte_order) };
+            let e = if *size == 1 {
+                "|"
+            } else {
+                endian_char(byte_order)
+            };
             let c = if *signed { "i" } else { "u" };
             Ok(format!("{}{}{}", e, c, size))
         }
@@ -57,7 +60,11 @@ fn datatype_to_numpy_str(dt: &DataType) -> Result<String, String> {
         DataType::Bitfield {
             size, byte_order, ..
         } => {
-            let e = if *size == 1 { "|" } else { endian_char(byte_order) };
+            let e = if *size == 1 {
+                "|"
+            } else {
+                endian_char(byte_order)
+            };
             Ok(format!("{}u{}", e, size))
         }
         DataType::Compound { size, fields, .. } if fields.len() == 2 => {
@@ -129,8 +136,7 @@ impl PyHDF5Dataset {
     /// a fixed numpy dtype (variable-length, reference).
     #[getter]
     fn numpy_dtype(&self) -> PyResult<String> {
-        datatype_to_numpy_str(self.inner.dtype())
-            .map_err(|msg| pyo3::exceptions::PyValueError::new_err(msg))
+        datatype_to_numpy_str(self.inner.dtype()).map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     #[getter]
@@ -152,14 +158,7 @@ impl PyHDF5Dataset {
             let dict = pyo3::types::PyDict::new(py);
             dict.set_item("id", f.id)?;
             dict.set_item("name", f.display_name())?;
-            dict.set_item(
-                "client_data",
-                f.client_data
-                    .iter()
-                    .copied()
-                    .collect::<Vec<u32>>()
-                    .into_pyobject(py)?,
-            )?;
+            dict.set_item("client_data", f.client_data.to_vec().into_pyobject(py)?)?;
             list.append(dict)?;
         }
         Ok(list.into_any().unbind())
@@ -174,9 +173,10 @@ impl PyHDF5Dataset {
     fn chunk_index<'py>(&'py self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let ds = self.inner.clone();
         future_into_py(py, async move {
-            let index = ds.chunk_index().await.map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-            })?;
+            let index = ds
+                .chunk_index()
+                .await
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Ok(PyChunkIndex::new(index.clone()))
         })
     }
@@ -219,10 +219,7 @@ impl PyHDF5Dataset {
                 .batch_fetch_ranges(&ranges)
                 .await
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            Ok(results
-                .into_iter()
-                .map(|b| b.to_vec())
-                .collect::<Vec<_>>())
+            Ok(results.into_iter().map(|b| b.to_vec()).collect::<Vec<_>>())
         })
     }
 

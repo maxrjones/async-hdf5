@@ -82,9 +82,7 @@ impl ObspecBackend {
         let result = future.await?;
         Python::attach(|py| {
             // obspec ObjectMeta has a .size attribute
-            result
-                .getattr(py, intern!(py, "size"))?
-                .extract::<u64>(py)
+            result.getattr(py, intern!(py, "size"))?.extract::<u64>(py)
         })
     }
 

@@ -1,8 +1,7 @@
 use std::path::PathBuf;
 
-use async_hdf5::AttributeValue;
-use async_hdf5::HDF5File;
 use async_hdf5::reader::TokioReader;
+use async_hdf5::{AttributeValue, HDF5File};
 
 fn fixture_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -66,8 +65,13 @@ async fn test_v2_group_attrs() {
 async fn test_v2_dataset_attrs() {
     let file = open_fixture("attributes.h5").await.unwrap();
     let root = file.root_group().await.unwrap();
-    let ds = root.group("mygroup").await.unwrap()
-        .dataset("data").await.unwrap();
+    let ds = root
+        .group("mygroup")
+        .await
+        .unwrap()
+        .dataset("data")
+        .await
+        .unwrap();
     let attrs = ds.attributes().await;
 
     assert_eq!(attrs.len(), 4);
@@ -118,8 +122,13 @@ async fn test_v1_group_attrs() {
 async fn test_v1_dataset_attrs() {
     let file = open_fixture("attributes_v1.h5").await.unwrap();
     let root = file.root_group().await.unwrap();
-    let ds = root.group("subgroup").await.unwrap()
-        .dataset("array").await.unwrap();
+    let ds = root
+        .group("subgroup")
+        .await
+        .unwrap()
+        .dataset("array")
+        .await
+        .unwrap();
 
     let offset = ds.attribute("offset").await.unwrap();
     assert_eq!(offset.value.as_f64(), Some(1.5));

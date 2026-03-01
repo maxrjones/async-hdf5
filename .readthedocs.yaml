@@ -1,0 +1,12 @@
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.12"
+    rust: "1.80"
+  commands:
+    - pip install uv
+    - cd python && uv sync --group docs --no-install-package async-hdf5
+    - cd python && uv run --no-project maturin develop
+    - cd python && uv run --no-project mkdocs build -d $READTHEDOCS_OUTPUT/html

@@ -158,11 +158,7 @@ impl StorageLayout {
     }
 
     /// Parse layout message version 3.
-    fn parse_v3(
-        r: &mut HDF5Reader,
-        _size_of_offsets: u8,
-        _size_of_lengths: u8,
-    ) -> Result<Self> {
+    fn parse_v3(r: &mut HDF5Reader, _size_of_offsets: u8, _size_of_lengths: u8) -> Result<Self> {
         let layout_class = r.read_u8()?;
 
         match layout_class {

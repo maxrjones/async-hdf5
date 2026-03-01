@@ -208,8 +208,7 @@ fn identify_format(data: &Bytes) -> String {
     }
 
     // HDF4
-    if head.len() >= 4 && head[0] == 0x0e && head[1] == 0x03 && head[2] == 0x13 && head[3] == 0x01
-    {
+    if head.len() >= 4 && head[0] == 0x0e && head[1] == 0x03 && head[2] == 0x13 && head[3] == 0x01 {
         return "file appears to be HDF4 format, not HDF5. \
                 async-hdf5 only supports HDF5 (and NetCDF4, which is HDF5-based)"
             .to_string();

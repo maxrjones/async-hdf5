@@ -76,10 +76,7 @@ impl LocalHeap {
         }
 
         let bytes = &self.data_segment[start..];
-        let end = bytes
-            .iter()
-            .position(|&b| b == 0)
-            .unwrap_or(bytes.len());
+        let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
 
         Ok(String::from_utf8_lossy(&bytes[..end]).into())
     }

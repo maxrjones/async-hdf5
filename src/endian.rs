@@ -1,6 +1,7 @@
+use std::io::{Cursor, Read};
+
 use byteorder::{LittleEndian, ReadBytesExt};
 use bytes::Bytes;
-use std::io::{Cursor, Read};
 
 use crate::error::{HDF5Error, Result};
 

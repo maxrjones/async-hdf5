@@ -140,9 +140,7 @@ impl AttributeMessage {
                 size, byte_order, ..
             } => decode_floating_point(raw, *size, *byte_order, n),
 
-            DataType::String {
-                size, padding, ..
-            } => {
+            DataType::String { size, padding, .. } => {
                 let s = if *size == 0 {
                     // Zero-size means the string is empty or this is a vlen string
                     String::new()
@@ -198,7 +196,9 @@ impl AttributeMessage {
         size_of_lengths: u8,
     ) -> Result<AttributeValue> {
         match &self.dtype {
-            DataType::VarLen { is_string: true, .. } => {
+            DataType::VarLen {
+                is_string: true, ..
+            } => {
                 // Vlen string: raw_value = length(4) + collection_addr(size_of_offsets) + object_index(4)
                 let raw = &self.raw_value;
                 if raw.len() < 4 + size_of_offsets as usize + 4 {
@@ -299,10 +299,21 @@ impl AttributeMessage {
             .to_string();
         r.skip_field_padding(name_size, 8);
 
-        let (dtype, dataspace, raw_value) =
-            parse_dtype_dataspace_value(r, data, datatype_size, dataspace_size, size_of_lengths, true)?;
+        let (dtype, dataspace, raw_value) = parse_dtype_dataspace_value(
+            r,
+            data,
+            datatype_size,
+            dataspace_size,
+            size_of_lengths,
+            true,
+        )?;
 
-        Ok(Self { name, dtype, dataspace, raw_value })
+        Ok(Self {
+            name,
+            dtype,
+            dataspace,
+            raw_value,
+        })
     }
 
     fn parse_v2(
@@ -322,10 +333,21 @@ impl AttributeMessage {
             .trim_end_matches('\0')
             .to_string();
 
-        let (dtype, dataspace, raw_value) =
-            parse_dtype_dataspace_value(r, data, datatype_size, dataspace_size, size_of_lengths, false)?;
+        let (dtype, dataspace, raw_value) = parse_dtype_dataspace_value(
+            r,
+            data,
+            datatype_size,
+            dataspace_size,
+            size_of_lengths,
+            false,
+        )?;
 
-        Ok(Self { name, dtype, dataspace, raw_value })
+        Ok(Self {
+            name,
+            dtype,
+            dataspace,
+            raw_value,
+        })
     }
 
     fn parse_v3(
@@ -340,21 +362,28 @@ impl AttributeMessage {
         let datatype_size = r.read_u16()? as usize;
         let dataspace_size = r.read_u16()? as usize;
 
-        let _charset = if flags & 0x10 != 0 {
-            r.read_u8()?
-        } else {
-            0
-        };
+        let _charset = if flags & 0x10 != 0 { r.read_u8()? } else { 0 };
 
         let name_bytes = r.read_bytes(name_size)?;
         let name = String::from_utf8_lossy(&name_bytes)
             .trim_end_matches('\0')
             .to_string();
 
-        let (dtype, dataspace, raw_value) =
-            parse_dtype_dataspace_value(r, data, datatype_size, dataspace_size, size_of_lengths, false)?;
+        let (dtype, dataspace, raw_value) = parse_dtype_dataspace_value(
+            r,
+            data,
+            datatype_size,
+            dataspace_size,
+            size_of_lengths,
+            false,
+        )?;
 
-        Ok(Self { name, dtype, dataspace, raw_value })
+        Ok(Self {
+            name,
+            dtype,
+            dataspace,
+            raw_value,
+        })
     }
 }
 
@@ -425,7 +454,11 @@ macro_rules! decode_numeric {
             .take($n)
             .map(|c| {
                 let arr: [u8; $width] = c.try_into().unwrap();
-                if $is_le { <$ty>::from_le_bytes(arr) } else { <$ty>::from_be_bytes(arr) }
+                if $is_le {
+                    <$ty>::from_le_bytes(arr)
+                } else {
+                    <$ty>::from_be_bytes(arr)
+                }
             })
             .collect::<Vec<$ty>>()
     }};
@@ -441,25 +474,20 @@ fn decode_fixed_point(
 ) -> AttributeValue {
     let is_le = matches!(byte_order, ByteOrder::LittleEndian);
     match (size, signed) {
-        (1, true)  => AttributeValue::I8(raw.iter().take(n).map(|&b| b as i8).collect()),
+        (1, true) => AttributeValue::I8(raw.iter().take(n).map(|&b| b as i8).collect()),
         (1, false) => AttributeValue::U8(raw.iter().take(n).copied().collect()),
-        (2, true)  => AttributeValue::I16(decode_numeric!(raw, n, is_le, 2, i16)),
+        (2, true) => AttributeValue::I16(decode_numeric!(raw, n, is_le, 2, i16)),
         (2, false) => AttributeValue::U16(decode_numeric!(raw, n, is_le, 2, u16)),
-        (4, true)  => AttributeValue::I32(decode_numeric!(raw, n, is_le, 4, i32)),
+        (4, true) => AttributeValue::I32(decode_numeric!(raw, n, is_le, 4, i32)),
         (4, false) => AttributeValue::U32(decode_numeric!(raw, n, is_le, 4, u32)),
-        (8, true)  => AttributeValue::I64(decode_numeric!(raw, n, is_le, 8, i64)),
+        (8, true) => AttributeValue::I64(decode_numeric!(raw, n, is_le, 8, i64)),
         (8, false) => AttributeValue::U64(decode_numeric!(raw, n, is_le, 8, u64)),
         _ => AttributeValue::Raw(raw.to_vec()),
     }
 }
 
 /// Decode floating-point raw bytes into an `AttributeValue`.
-fn decode_floating_point(
-    raw: &[u8],
-    size: u32,
-    byte_order: ByteOrder,
-    n: usize,
-) -> AttributeValue {
+fn decode_floating_point(raw: &[u8], size: u32, byte_order: ByteOrder, n: usize) -> AttributeValue {
     let is_le = matches!(byte_order, ByteOrder::LittleEndian);
     match size {
         4 => AttributeValue::F32(decode_numeric!(raw, n, is_le, 4, f32)),

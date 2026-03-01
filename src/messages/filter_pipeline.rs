@@ -106,7 +106,7 @@ impl FilterPipeline {
             }
 
             // Pad if odd number of client data values
-            if num_client_data % 2 != 0 {
+            if !num_client_data.is_multiple_of(2) {
                 r.skip(4);
             }
 

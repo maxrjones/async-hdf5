@@ -253,7 +253,9 @@ async fn read_chunk_btree_node(
     // Key size for type 1: 4 (size) + 4 (filter_mask) + (ndims+1)*8 (offsets)
     let key_size = 8 + (ndims + 1) * 8;
     // Fetch enough for a large node
-    let fetch_size = (8 + 2 * size_of_offsets as usize + 1024 * (key_size + size_of_offsets as usize))
+    let fetch_size = (8
+        + 2 * size_of_offsets as usize
+        + 1024 * (key_size + size_of_offsets as usize))
         .min(65536) as u64;
     let data = reader.get_bytes(address..address + fetch_size).await?;
     let mut r = HDF5Reader::with_sizes(data, size_of_offsets, size_of_lengths);

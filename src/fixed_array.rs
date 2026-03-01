@@ -181,8 +181,8 @@ async fn read_paged_entries(
 ) -> Result<Vec<FixedArrayChunkEntry>> {
     let num_entries = header.max_num_entries as usize;
     let entries_per_page = 1usize << header.page_bits;
-    let num_pages = (num_entries + entries_per_page - 1) / entries_per_page;
-    let bitmap_size = (num_pages + 7) / 8;
+    let num_pages = num_entries.div_ceil(entries_per_page);
+    let bitmap_size = num_pages.div_ceil(8);
 
     // Fetch the FADB header + bitmap
     let header_plus_bitmap = fadb_header_size + bitmap_size as u64 + 4; // +4 checksum
@@ -284,13 +284,12 @@ pub(crate) fn parse_entries(
             } else {
                 // v4: chunk size uses a variable encoding
                 // "entry_size - size_of_offsets - 4" bytes for the size field
-                let _size_field_len =
-                    (r.get_ref().len() as u64 - r.position()).min(8) as u8; // fallback
-                // Actually, the entry_size tells us exactly how many bytes per entry.
-                // entry_size = size_of_offsets + chunk_size_bytes + 4 (filter_mask)
-                // So chunk_size_bytes = entry_size - size_of_offsets - 4
-                // But we don't have entry_size here directly. We can compute it from
-                // the uncompressed chunk size: "one more than bytes needed to encode it"
+                let _size_field_len = (r.get_ref().len() as u64 - r.position()).min(8) as u8; // fallback
+                                                                                              // Actually, the entry_size tells us exactly how many bytes per entry.
+                                                                                              // entry_size = size_of_offsets + chunk_size_bytes + 4 (filter_mask)
+                                                                                              // So chunk_size_bytes = entry_size - size_of_offsets - 4
+                                                                                              // But we don't have entry_size here directly. We can compute it from
+                                                                                              // the uncompressed chunk size: "one more than bytes needed to encode it"
                 let nbytes = bytes_needed_for(uncompressed_chunk_size);
                 read_n_byte_uint(r, nbytes)?
             };
@@ -323,7 +322,7 @@ pub(crate) fn bytes_needed_for(value: u64) -> u8 {
         return 1;
     }
     let bits = 64 - value.leading_zeros();
-    let bytes = (bits + 7) / 8;
+    let bytes = bits.div_ceil(8);
     // HDF5 convention: "one more than needed"
     (bytes as u8 + 1).min(8)
 }
