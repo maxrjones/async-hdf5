@@ -7,6 +7,7 @@ Provides:
 - pytest configuration (network/slow markers, async setup)
 """
 
+import asyncio
 import pathlib
 
 import h5py
@@ -270,8 +271,15 @@ async def h5py_comparison(filepath: str, group: str | None = None):
                 f"{varname}: itemsize {async_dtype.itemsize} != {h5py_dtype.itemsize}"
             )
 
-            # Value comparison
-            actual = ds[varname].values
+            # Value comparison (with timeout to prevent hangs on broken chunks)
+            try:
+                actual = await asyncio.wait_for(
+                    asyncio.to_thread(lambda v=varname: ds[v].values), timeout=10
+                )
+            except TimeoutError:
+                raise AssertionError(
+                    f"{varname}: data read timed out after 10s (likely broken chunk index or byte ranges)"
+                )
             expected = h5_ds[()]
             np.testing.assert_allclose(
                 actual,
