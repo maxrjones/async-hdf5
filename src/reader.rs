@@ -108,7 +108,7 @@ impl AsyncFileReader for ObjectReader {
 
         let meta: object_store::ObjectMeta =
             self.store.head(&self.path).await.map_err(HDF5Error::from)?;
-        Ok(Some(meta.size as u64))
+        Ok(Some(meta.size))
     }
 }
 
