@@ -12,8 +12,10 @@ jobs:
       id-token: write # Required for OIDC token exchange
     steps:
       - uses: actions/checkout@v5
-      - uses: rust-lang/crates-io-auth-action@v1
-        id: auth
-      - run: cargo publish
+      - name: Verify publish crate
+        run: cargo publish --dry-run
+
+      - name: Publish crate
+        run: cargo publish
         env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
