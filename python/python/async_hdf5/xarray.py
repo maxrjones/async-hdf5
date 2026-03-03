@@ -19,7 +19,6 @@ For custom store configuration, pass an ObjectStore via ``store=``::
 from __future__ import annotations
 
 import asyncio
-
 import posixpath
 import threading
 from collections.abc import Coroutine, Iterable
@@ -30,9 +29,11 @@ from xarray.backends import BackendEntrypoint
 
 if TYPE_CHECKING:
     import os
-    from async_hdf5._input import ObspecInput
+
     from obstore.store import ObjectStore
     from xarray.core.dataset import Dataset
+
+    from async_hdf5._input import ObspecInput
 
 T = TypeVar("T")
 
@@ -40,6 +41,7 @@ _HDF5_EXTENSIONS = {".h5", ".hdf5", ".he5", ".hdf", ".nc", ".nc4"}
 
 # URL schemes that indicate cloud/remote object stores.
 _CLOUD_SCHEMES = {"s3", "s3a", "gs", "az", "adl", "azure", "abfs", "abfss"}
+
 
 def _has_hdf5_extension(path: str) -> bool:
     """Check if a path or URL has an HDF5 file extension."""
@@ -196,9 +198,7 @@ class AsyncHDF5BackendEntrypoint(BackendEntrypoint):
 
         from async_hdf5.zarr import open_hdf5
 
-        resolved_store, path = _resolve_store_and_path(
-            str(filename_or_obj), store
-        )
+        resolved_store, path = _resolve_store_and_path(str(filename_or_obj), store)
 
         hdf5_store = _run_sync(
             open_hdf5(
