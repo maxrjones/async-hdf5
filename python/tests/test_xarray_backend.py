@@ -95,6 +95,14 @@ def test_with_explicit_store(cf_filepath):
     assert "temperature" in ds.data_vars
 
 
+def test_open_datatree(nested_groups_filepath):
+    """open_datatree returns a DataTree with the group hierarchy."""
+    dt = xr.open_datatree(nested_groups_filepath, engine="async_hdf5")
+    assert isinstance(dt, xr.DataTree)
+    assert "level1" in dt.children
+    assert "data_a" in dt["level1"].dataset.data_vars
+
+
 @pytest.mark.network
 def test_open_dataset_https():
     """Opening an HDF5/NetCDF4 file over HTTPS auto-creates the store."""
@@ -103,6 +111,15 @@ def test_open_dataset_https():
     assert isinstance(ds, xr.Dataset)
     assert "sst" in ds.data_vars
     assert ds["sst"].shape[0] > 0
+
+
+@pytest.mark.network
+def test_open_datatree_https():
+    """Opening an HDF5/NetCDF4 file as a DataTree over HTTPS."""
+    url = "https://github.com/xarray-contrib/xarray-tutorial/raw/refs/heads/main/data/sst.mnmean.nc"
+    dt = xr.open_datatree(url, engine="async_hdf5")
+    assert isinstance(dt, xr.DataTree)
+    assert "sst" in dt.dataset.data_vars
 
 
 # nested_groups.h5 has no datasets at root — data is in subgroups

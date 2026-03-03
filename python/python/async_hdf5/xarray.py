@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
     from obstore.store import ObjectStore
     from xarray.core.dataset import Dataset
+    from xarray.core.datatree import DataTree
 
     from async_hdf5._input import ObspecInput
 
@@ -152,6 +153,7 @@ class AsyncHDF5BackendEntrypoint(BackendEntrypoint):
     """
 
     description: ClassVar[str] = "Open HDF5 files using async-hdf5"
+    supports_groups: ClassVar[bool] = True
 
     open_dataset_parameters: ClassVar[tuple[str, ...]] = (
         "filename_or_obj",
@@ -223,3 +225,180 @@ class AsyncHDF5BackendEntrypoint(BackendEntrypoint):
             use_cftime=use_cftime,
             decode_timedelta=decode_timedelta,
         )
+
+    def open_datatree(
+        self,
+        filename_or_obj: str | os.PathLike[str] | Any,
+        *,
+        drop_variables: str | Iterable[str] | None = None,
+        mask_and_scale: bool = True,
+        decode_times: bool = True,
+        concat_characters: bool = True,
+        decode_coords: bool = True,
+        use_cftime: bool | None = None,
+        decode_timedelta: bool | None = None,
+        # async-hdf5 specific
+        store: ObjectStore | ObspecInput | None = None,
+        group: str | None = None,
+        block_size: int = 8 * 1024 * 1024,
+        pre_warm_size: int | None = None,
+    ) -> DataTree:
+        from xarray.backends.common import datatree_from_dict_with_io_cleanup
+
+        groups_dict = self.open_groups_as_dict(
+            filename_or_obj,
+            drop_variables=drop_variables,
+            mask_and_scale=mask_and_scale,
+            decode_times=decode_times,
+            concat_characters=concat_characters,
+            decode_coords=decode_coords,
+            use_cftime=use_cftime,
+            decode_timedelta=decode_timedelta,
+            store=store,
+            group=group,
+            block_size=block_size,
+            pre_warm_size=pre_warm_size,
+        )
+        return datatree_from_dict_with_io_cleanup(groups_dict)
+
+    def open_groups_as_dict(
+        self,
+        filename_or_obj: str | os.PathLike[str] | Any,
+        *,
+        drop_variables: str | Iterable[str] | None = None,
+        mask_and_scale: bool = True,
+        decode_times: bool = True,
+        concat_characters: bool = True,
+        decode_coords: bool = True,
+        use_cftime: bool | None = None,
+        decode_timedelta: bool | None = None,
+        # async-hdf5 specific
+        store: ObjectStore | ObspecInput | None = None,
+        group: str | None = None,
+        block_size: int = 8 * 1024 * 1024,
+        pre_warm_size: int | None = None,
+    ) -> dict[str, Dataset]:
+        import xarray as xr
+
+        resolved_store, path = _resolve_store_and_path(str(filename_or_obj), store)
+
+        # Build HDF5Stores for every group in a single async pass so that
+        # phony dimension names are assigned with a file-global counter
+        # (mirroring h5netcdf behaviour and avoiding conflicts when
+        # DataTree checks alignment across parent/child groups).
+        group_stores = _run_sync(
+            _open_all_groups(
+                path=path,
+                store=resolved_store,
+                group=group,
+                drop_variables=drop_variables,
+                block_size=block_size,
+                pre_warm_size=pre_warm_size,
+            )
+        )
+
+        groups_dict: dict[str, Dataset] = {}
+        for grp_path, hdf5_store in group_stores.items():
+            ds = xr.open_dataset(
+                hdf5_store,
+                engine="zarr",
+                consolidated=False,
+                zarr_format=3,
+                mask_and_scale=mask_and_scale,
+                decode_times=decode_times,
+                concat_characters=concat_characters,
+                decode_coords=decode_coords,
+                use_cftime=use_cftime,
+                decode_timedelta=decode_timedelta,
+            )
+            groups_dict[grp_path] = ds
+
+        return groups_dict
+
+
+async def _open_all_groups(
+    *,
+    path: str,
+    store: Any,
+    group: str | None,
+    drop_variables: Iterable[str] | None,
+    block_size: int,
+    pre_warm_size: int | None,
+) -> dict[str, Any]:
+    """Walk the HDF5 group tree and build an HDF5Store per group.
+
+    Phony dimension names are assigned with a single file-global counter
+    (like h5netcdf) so that different groups never produce conflicting
+    dimension sizes under the same name.
+    """
+    import warnings
+
+    from async_hdf5 import HDF5Dataset, HDF5File, HDF5Group
+    from async_hdf5._utils import assign_phony_dims
+    from async_hdf5.zarr import HDF5Store, _DatasetInfo
+
+    drop = set(drop_variables or ())
+
+    f = await HDF5File.open(
+        path, store=store, block_size=block_size, pre_warm_size=pre_warm_size
+    )
+    root = await f.root_group()
+    target = (await root.navigate(group)) if group else root
+
+    # Phase 1: walk tree, collect datasets from every group.
+    collected: dict[str, tuple[HDF5Group, dict[str, HDF5Dataset]]] = {}
+
+    async def _walk(grp: HDF5Group, prefix: str) -> None:
+        datasets: dict[str, HDF5Dataset] = {}
+        for name in await grp.dataset_names():
+            if name not in drop:
+                datasets[name] = await grp.dataset(name)
+        collected[prefix] = (grp, datasets)
+        for name in await grp.group_names():
+            child = await grp.group(name)
+            child_path = name if prefix == "/" else f"{prefix}/{name}"
+            await _walk(child, child_path)
+
+    await _walk(target, "/")
+
+    # Phase 2: assign phony dims with a single global counter across ALL
+    # groups, keyed by "group_path/var_name" for uniqueness.
+    all_variables: list[tuple[str, tuple[int, ...]]] = []
+    for grp_path, (_grp, datasets) in collected.items():
+        for name, ds in datasets.items():
+            global_key = f"{grp_path}/{name}" if grp_path != "/" else f"/{name}"
+            all_variables.append((global_key, tuple(int(s) for s in ds.shape)))
+
+    global_dims = assign_phony_dims(all_variables)
+
+    # Phase 3: build an HDF5Store per group.
+    result: dict[str, HDF5Store] = {}
+    for grp_path, (grp, datasets) in collected.items():
+        dataset_infos: dict[str, _DatasetInfo] = {}
+        skipped: list[tuple[str, str]] = []
+        for name, ds in datasets.items():
+            global_key = f"{grp_path}/{name}" if grp_path != "/" else f"/{name}"
+            try:
+                dataset_infos[name] = _DatasetInfo(
+                    ds, dimension_names=global_dims[global_key]
+                )
+            except (ValueError, TypeError) as exc:
+                skipped.append((name, str(exc)))
+
+        if skipped:
+            details = "; ".join(f"{n}: {e}" for n, e in skipped)
+            warnings.warn(
+                f"Skipped {len(skipped)} dataset(s) in group {grp_path!r} "
+                f"with unsupported types: {details}. "
+                f"Use drop_variables to suppress this warning.",
+                stacklevel=2,
+            )
+
+        group_attrs = await grp.attributes()
+        result[grp_path] = HDF5Store(
+            dataset_infos=dataset_infos,
+            group_attrs=group_attrs,
+            file_url=path,
+        )
+
+    return result
