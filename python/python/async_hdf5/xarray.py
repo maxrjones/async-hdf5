@@ -4,30 +4,97 @@ Allows opening HDF5 files directly with xarray::
 
     ds = xr.open_dataset("file.h5", engine="async_hdf5")
 
-For cloud storage, pass an ObjectStore via ``store=``::
+Cloud URLs are auto-detected — no explicit ``store=`` needed::
+
+    ds = xr.open_dataset("s3://bucket/path/file.h5", engine="async_hdf5")
+
+For custom store configuration, pass an ObjectStore via ``store=``::
 
     from async_hdf5.store import S3Store
 
-    store = S3Store(bucket="my-bucket", region="us-east-1")
+    store = S3Store.from_url("s3://my-bucket", skip_signature=True)
     ds = xr.open_dataset("path/to/file.h5", engine="async_hdf5", store=store)
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
+
+import posixpath
 import threading
 from collections.abc import Coroutine, Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
+from urllib.parse import urlparse
 
 from xarray.backends import BackendEntrypoint
 
 if TYPE_CHECKING:
+    import os
+    from async_hdf5._input import ObspecInput
+    from obstore.store import ObjectStore
     from xarray.core.dataset import Dataset
 
 T = TypeVar("T")
 
 _HDF5_EXTENSIONS = {".h5", ".hdf5", ".he5", ".hdf", ".nc", ".nc4"}
+
+# URL schemes that indicate cloud/remote object stores.
+_CLOUD_SCHEMES = {"s3", "s3a", "gs", "az", "adl", "azure", "abfs", "abfss"}
+
+def _has_hdf5_extension(path: str) -> bool:
+    """Check if a path or URL has an HDF5 file extension."""
+    parsed = urlparse(path)
+    # For URLs, check the path component; for local paths urlparse puts
+    # everything in ``parsed.path`` when there is no scheme.
+    _, ext = posixpath.splitext(parsed.path)
+    return ext.lower() in _HDF5_EXTENSIONS
+
+
+def _resolve_store_and_path(
+    filename: str,
+    store: Any,
+) -> tuple[Any, str]:
+    """Resolve an object store and path from a filename and optional store.
+
+    When *store* is provided, it is returned as-is alongside the filename.
+    When *store* is ``None``, the filename is inspected:
+
+    - Cloud URLs (``s3://``, ``gs://``, ``az://``, …) and HTTP(S) URLs are
+      parsed with ``async_hdf5.store.from_url`` to create the appropriate
+      store.  The URL is split into a bucket/host-level store and an
+      object-key path.
+    - Local paths use ``async_hdf5.store.LocalStore``.
+    """
+    if store is not None:
+        return store, filename
+
+    parsed = urlparse(filename)
+
+    if parsed.scheme in _CLOUD_SCHEMES:
+        from async_hdf5.store import from_url
+
+        # Build store from the bucket-level URL; the object key is the path.
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        obj_path = parsed.path.lstrip("/")
+        return from_url(base_url), obj_path
+
+    if parsed.scheme in ("http", "https"):
+        from async_hdf5.store import from_url
+
+        # Split into directory-level store and filename.
+        dir_path, _, obj_name = parsed.path.rpartition("/")
+        base_url = f"{parsed.scheme}://{parsed.netloc}{dir_path}"
+        return from_url(base_url), obj_name
+
+    # Local filesystem path — use the parent directory as prefix so the
+    # store path is just the filename.
+    from pathlib import Path
+
+    from async_hdf5.store import LocalStore
+
+    resolved = Path(filename).resolve()
+    return LocalStore(prefix=resolved.parent), resolved.name
+
 
 # Module-level persistent event loop for sync→async bridging.
 _sync_loop: asyncio.AbstractEventLoop | None = None
@@ -104,10 +171,9 @@ class AsyncHDF5BackendEntrypoint(BackendEntrypoint):
         self,
         filename_or_obj: str | os.PathLike[str] | Any,
     ) -> bool:
-        if isinstance(filename_or_obj, str | os.PathLike):
-            _, ext = os.path.splitext(str(filename_or_obj))
-            return ext in _HDF5_EXTENSIONS
-        return False
+        if not isinstance(filename_or_obj, str | os.PathLike):
+            return False
+        return _has_hdf5_extension(str(filename_or_obj))
 
     def open_dataset(
         self,
@@ -121,7 +187,7 @@ class AsyncHDF5BackendEntrypoint(BackendEntrypoint):
         use_cftime: bool | None = None,
         decode_timedelta: bool | None = None,
         # async-hdf5 specific
-        store: Any | None = None,
+        store: ObjectStore | ObspecInput | None = None,
         group: str | None = None,
         block_size: int = 8 * 1024 * 1024,
         pre_warm_size: int | None = None,
@@ -130,15 +196,14 @@ class AsyncHDF5BackendEntrypoint(BackendEntrypoint):
 
         from async_hdf5.zarr import open_hdf5
 
-        if store is None:
-            from async_hdf5.store import LocalStore
-
-            store = LocalStore()
+        resolved_store, path = _resolve_store_and_path(
+            str(filename_or_obj), store
+        )
 
         hdf5_store = _run_sync(
             open_hdf5(
-                path=str(filename_or_obj),
-                store=store,
+                path=path,
+                store=resolved_store,
                 group=group,
                 drop_variables=drop_variables,
                 block_size=block_size,

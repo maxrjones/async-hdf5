@@ -95,6 +95,16 @@ def test_with_explicit_store(cf_filepath):
     assert "temperature" in ds.data_vars
 
 
+@pytest.mark.network
+def test_open_dataset_https():
+    """Opening an HDF5/NetCDF4 file over HTTPS auto-creates the store."""
+    url = "https://github.com/xarray-contrib/xarray-tutorial/raw/refs/heads/main/data/sst.mnmean.nc"
+    ds = xr.open_dataset(url, engine="async_hdf5")
+    assert isinstance(ds, xr.Dataset)
+    assert "sst" in ds.data_vars
+    assert ds["sst"].shape[0] > 0
+
+
 # nested_groups.h5 has no datasets at root — data is in subgroups
 _no_root_vars = {"nested_groups.h5"}
 
