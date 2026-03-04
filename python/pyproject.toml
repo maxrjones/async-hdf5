@@ -6,6 +6,8 @@ build-backend = "maturin"
 name = "async-hdf5"
 requires-python = ">=3.11"
 dependencies = ["obspec>=0.1.0"]
+description = "Async HDF5 metadata reader for Python with a Rust core."
+readme = "README.md"
 dynamic = ["version"]
 classifiers = [
     "Programming Language :: Rust",
