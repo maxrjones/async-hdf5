@@ -9,7 +9,7 @@ on:
   push:
     tags:
       - "py-v*"
-  pull_request:
+  # pull_request:
   workflow_dispatch:
 
 permissions:
