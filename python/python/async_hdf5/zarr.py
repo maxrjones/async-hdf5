@@ -233,12 +233,18 @@ class _DatasetInfo:
 
 def _create_array_metadata(info: _DatasetInfo) -> ArrayV3Metadata:
     """Build Zarr v3 array metadata from cached dataset info."""
-    from virtualizarr.codecs import convert_to_codec_pipeline
     from zarr.dtype import parse_data_type
 
     codecs_config = hdf5_filters_to_zarr_codecs(info.filters, info.element_size)
     dt = np.dtype(info.numpy_dtype)
     zdtype = parse_data_type(dt, zarr_format=3)
+
+    # Build codec list: BytesCodec (array->bytes) + HDF5 filters (bytes->bytes)
+    endian = "big" if dt.byteorder == ">" else "little"
+    codecs: list[dict[str, Any]] = [
+        {"name": "bytes", "configuration": {"endian": endian}},
+        *codecs_config,
+    ]
 
     return ArrayV3Metadata(
         shape=info.shape,
@@ -251,7 +257,7 @@ def _create_array_metadata(info: _DatasetInfo) -> ArrayV3Metadata:
         fill_value=(
             zdtype.default_scalar() if info.fill_value is None else info.fill_value
         ),
-        codecs=convert_to_codec_pipeline(codecs=codecs_config, dtype=dt),
+        codecs=codecs,
         attributes={},
         dimension_names=info.dimension_names,
         storage_transformers=None,
